@@ -318,12 +318,67 @@ function wireUi() {
   $("autoMapBtn").addEventListener("click", () => autoMap().catch((e) => setResult(e.message, true)));
   $("applyBtn").addEventListener("click", () => applyLoad());
   $("refreshBtn").addEventListener("click", () => loadWorkbook().catch((e) => setResult(e.message, true)));
+  $("createSheetBtn").addEventListener("click", () => createSheet().catch((e) => setResult(e.message, true)));
+  $("newSheetFromUpload").addEventListener("change", () => {
+    const on = $("newSheetFromUpload").checked;
+    $("createSheetHint").textContent = on
+      ? "Колонки и строки возьмутся из выбранного листа источника. Поле колонок можно оставить пустым."
+      : "Можно создать пустой лист с заголовками или импортировать источник как новый лист.";
+  });
 
   document.querySelectorAll('input[name="mode"]').forEach((el) => {
     el.addEventListener("change", () => {
       $("keysWrap").style.opacity = el.value === "upsert" || document.querySelector('input[name="mode"]:checked').value === "upsert" ? "1" : "0.45";
     });
   });
+}
+
+async function createSheet() {
+  const name = $("newSheetName").value.trim();
+  const columnsRaw = $("newSheetColumns").value.trim();
+  const fromUpload = $("newSheetFromUpload").checked;
+  if (!name) {
+    setResult("Укажите название нового листа.", true);
+    return;
+  }
+  if (fromUpload && !state.upload) {
+    setResult("Сначала загрузите файл-источник, либо снимите галочку импорта.", true);
+    return;
+  }
+  const columns = columnsRaw
+    ? columnsRaw.split(",").map((c) => c.trim()).filter(Boolean)
+    : [];
+  if (!fromUpload && !columns.length) {
+    setResult("Укажите колонки через запятую или включите импорт из загруженного файла.", true);
+    return;
+  }
+
+  $("createSheetBtn").disabled = true;
+  try {
+    const result = await api("/api/sheets/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        columns,
+        upload_id: fromUpload ? state.upload.upload_id : null,
+        source_sheet: fromUpload ? ($("sourceSheet").value || null) : null,
+        fill_data: fromUpload,
+      }),
+    });
+    setResult(
+      `Лист создан: ${result.sheet}\nКолонки: ${result.columns.join(", ")}\nСтрок записано: ${result.inserted}\nБэкап: ${result.backup}`
+    );
+    $("newSheetName").value = "";
+    $("newSheetColumns").value = "";
+    $("newSheetFromUpload").checked = false;
+    state.activeSheet = result.sheet;
+    await loadWorkbook();
+  } catch (err) {
+    setResult(err.message, true);
+  } finally {
+    $("createSheetBtn").disabled = false;
+  }
 }
 
 wireUi();

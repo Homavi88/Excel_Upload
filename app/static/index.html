@@ -32,6 +32,23 @@
         <p>Выберите целевой лист в TARGET.xlsx</p>
       </div>
       <div id="sheetList" class="sheet-list"></div>
+      <div class="new-sheet">
+        <h3>Новый лист</h3>
+        <label class="field">
+          <span>Название</span>
+          <input type="text" id="newSheetName" maxlength="31" placeholder="например New Yield" />
+        </label>
+        <label class="field">
+          <span>Колонки через запятую</span>
+          <input type="text" id="newSheetColumns" placeholder="Year, Month, Value" />
+        </label>
+        <label class="check">
+          <input type="checkbox" id="newSheetFromUpload" />
+          <span>Взять колонки и данные из загруженного файла</span>
+        </label>
+        <button class="btn primary" type="button" id="createSheetBtn">Создать лист</button>
+        <p id="createSheetHint" class="muted">Можно создать пустой лист с заголовками или импортировать источник как новый лист.</p>
+      </div>
     </aside>
 
     <section class="panel work-panel">

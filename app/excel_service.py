@@ -374,3 +374,96 @@ def restore_backup(backup_name: str) -> Path:
         raise FileNotFoundError("Бэкап не найден")
     shutil.copy2(src, target_path())
     return src
+
+
+_INVALID_SHEET_CHARS = set(r"[]:*?/\\")
+
+
+def _validate_sheet_name(name: str) -> str:
+    cleaned = _norm(name)
+    if not cleaned:
+        raise ValueError("Укажите название листа")
+    if len(cleaned) > 31:
+        raise ValueError("Название листа не длиннее 31 символа")
+    if any(ch in _INVALID_SHEET_CHARS for ch in cleaned):
+        raise ValueError(r"В названии листа нельзя использовать символы: [ ] : * ? / \ ")
+    if cleaned.startswith("'") or cleaned.endswith("'"):
+        raise ValueError("Название листа не должно начинаться или заканчиваться кавычкой")
+    return cleaned
+
+
+def _normalize_columns(columns: list[str] | None) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in columns or []:
+        name = _norm(raw)
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(name)
+    return result
+
+
+def create_sheet(
+    *,
+    name: str,
+    columns: list[str] | None = None,
+    upload_path: Path | None = None,
+    source_sheet: str | None = None,
+    fill_data: bool = True,
+) -> dict[str, Any]:
+    """Create a new worksheet. Optionally seed headers/data from an uploaded file."""
+    sheet_name = _validate_sheet_name(name)
+    columns = _normalize_columns(columns)
+
+    source_df: pd.DataFrame | None = None
+    if upload_path is not None:
+        source_df = _dataframe_from_upload(upload_path, source_sheet)
+        if not columns:
+            columns = [_norm(c) for c in source_df.columns if _norm(c)]
+
+    if not columns:
+        raise ValueError("Укажите колонки или загрузите файл-источник с заголовками")
+
+    backup = backup_target()
+    wb = load_workbook(target_path())
+    try:
+        existing_lower = {s.lower(): s for s in wb.sheetnames}
+        if sheet_name.lower() in existing_lower:
+            raise ValueError(f"Лист уже существует: {existing_lower[sheet_name.lower()]}")
+
+        ws = wb.create_sheet(title=sheet_name)
+        for idx, col_name in enumerate(columns, start=1):
+            ws.cell(1, idx).value = col_name
+
+        inserted = 0
+        if fill_data and source_df is not None:
+            write_row = 2
+            for _, row in source_df.iterrows():
+                empty = True
+                for idx, col_name in enumerate(columns, start=1):
+                    if col_name not in source_df.columns:
+                        continue
+                    value = row.get(col_name)
+                    if pd.isna(value):
+                        value = None
+                    if value not in (None, ""):
+                        empty = False
+                    ws.cell(write_row, idx).value = value
+                if not empty:
+                    inserted += 1
+                    write_row += 1
+
+        wb.save(target_path())
+        return {
+            "sheet": sheet_name,
+            "columns": columns,
+            "inserted": inserted,
+            "backup": str(backup.relative_to(ROOT)),
+            "from_upload": upload_path is not None,
+        }
+    finally:
+        wb.close()

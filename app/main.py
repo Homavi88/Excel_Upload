@@ -39,6 +39,14 @@ class RestoreBody(BaseModel):
     backup: str
 
 
+class CreateSheetBody(BaseModel):
+    name: str
+    columns: list[str] = Field(default_factory=list)
+    upload_id: str | None = None
+    source_sheet: str | None = None
+    fill_data: bool = True
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
@@ -150,6 +158,26 @@ def restore(body: RestoreBody) -> dict:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"restored_from": src.name}
+
+
+@app.post("/api/sheets/create")
+def create_sheet(body: CreateSheetBody) -> dict:
+    upload_path = None
+    if body.upload_id:
+        matches = list(xls.UPLOAD_DIR.glob(f"{body.upload_id}.*"))
+        if not matches:
+            raise HTTPException(status_code=404, detail="Загрузка не найдена. Загрузите файл снова.")
+        upload_path = matches[0]
+    try:
+        return xls.create_sheet(
+            name=body.name,
+            columns=body.columns,
+            upload_path=upload_path,
+            source_sheet=body.source_sheet,
+            fill_data=body.fill_data,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/replace-whole-sheet")

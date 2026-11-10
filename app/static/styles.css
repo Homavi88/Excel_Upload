@@ -102,7 +102,39 @@ body {
 .panel-head p { margin: 4px 0 14px; color: var(--muted); font-size: 0.9rem; }
 .backups-head { margin-top: 22px; }
 
-.sheet-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 180px); overflow: auto; }
+.sheet-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 420px); overflow: auto; }
+.new-sheet {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.new-sheet h3 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 0.98rem;
+}
+.new-sheet .field { margin-top: 0; }
+.new-sheet input[type="text"] {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #0d1712;
+  color: var(--ink);
+  padding: 10px 12px;
+  font: inherit;
+}
+.new-sheet .check {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  align-items: start;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.new-sheet .btn { width: 100%; margin-top: 4px; }
 .sheet-btn {
   text-align: left;
   border: 1px solid var(--line);
