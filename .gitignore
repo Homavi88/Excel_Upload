@@ -6,7 +6,7 @@ uploads/*
 !uploads/.gitkeep
 backups/*
 !backups/.gitkeep
-data/working.xlsx
+data/working.*
 data/active.json
 *.log
 .DS_Store

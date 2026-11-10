@@ -115,8 +115,11 @@ async def open_workbook(file: UploadFile = File(...)) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm"}:
-        raise HTTPException(status_code=400, detail="Нужен файл .xlsx или .xlsm")
+    if suffix not in xls.SUPPORTED_WORKBOOK_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Нужен файл .xlsx / .xlsm / .xls / .xlsb / .xltx / .xltm",
+        )
 
     xls.ensure_dirs()
     temp = xls.UPLOAD_DIR / f"open_{uuid.uuid4().hex}{suffix}"
@@ -144,8 +147,11 @@ async def upload_source(file: UploadFile = File(...)) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm", ".csv"}:
-        raise HTTPException(status_code=400, detail="Нужен .xlsx / .xlsm / .csv (не .xls)")
+    if suffix not in xls.SOURCE_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Нужен .xlsx / .xlsm / .xls / .xlsb / .csv",
+        )
 
     xls.ensure_dirs()
     upload_id = uuid.uuid4().hex
@@ -250,8 +256,11 @@ async def replace_whole_sheet(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm", ".csv"}:
-        raise HTTPException(status_code=400, detail="Нужен .xlsx / .xlsm / .csv (не .xls)")
+    if suffix not in xls.SOURCE_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="Нужен .xlsx / .xlsm / .xls / .xlsb / .csv",
+        )
 
     xls.ensure_dirs()
     upload_id = uuid.uuid4().hex
