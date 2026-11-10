@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -50,6 +53,19 @@ class CreateSheetBody(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
+
+
+@app.post("/api/shutdown")
+def shutdown_app() -> dict:
+    """Stop the local server so start.bat can close the terminal window."""
+
+    def _stop() -> None:
+        time.sleep(0.4)
+        # Hard-exit the uvicorn process so the parent .bat/.sh can finish.
+        os._exit(0)
+
+    threading.Thread(target=_stop, daemon=True).start()
+    return {"ok": True, "message": "Приложение выключается…"}
 
 
 @app.get("/api/workbook")
