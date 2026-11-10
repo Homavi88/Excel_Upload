@@ -10,6 +10,7 @@
 4. Нажмите **Открыть Excel** и выберите `.xlsx` в проводнике.
 
 Если `pip install` падает: удалите папку `.venv` и запустите `start.bat` снова.
+Нужен Python **3.11 или 3.12** (не Microsoft Store / не слишком новый 3.14).
 
 Linux / macOS: `chmod +x start.sh && ./start.sh`
 
