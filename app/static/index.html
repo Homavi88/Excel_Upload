@@ -17,11 +17,13 @@
       <div>
         <p class="brand-name">Excel Loader</p>
         <p class="brand-sub" id="fileLabel">Файл не выбран</p>
+        <p class="file-path" id="filePath" hidden></p>
       </div>
     </div>
     <div class="top-actions">
-      <label class="btn primary open-btn">
-        Открыть Excel
+      <button class="btn primary" type="button" id="browseBtn">Открыть Excel</button>
+      <label class="btn ghost open-btn" title="Открыть копию без записи в оригинал">
+        Копия
         <input type="file" id="workbookInput" accept=".xlsx,.xlsm" hidden />
       </label>
       <a class="btn ghost" href="/api/download" id="downloadBtn">Скачать</a>

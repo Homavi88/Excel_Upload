@@ -24,14 +24,35 @@ function setResult(text, isError = false) {
   box.textContent = typeof text === "string" ? text : JSON.stringify(text, null, 2);
 }
 
-async function loadWorkbook() {
-  const data = await api("/api/workbook");
-  state.sheets = data.sheets || [];
-  $("fileLabel").textContent = data.file || "Файл не выбран";
+function updateFileLabel(data) {
+  const label = data.file || "Файл не выбран";
+  if (data.file && data.inplace) {
+    $("fileLabel").innerHTML = `${escapeHtml(label)} <span class="badge">в оригинал</span>`;
+  } else if (data.file) {
+    $("fileLabel").innerHTML = `${escapeHtml(label)} <span class="badge warn">копия</span>`;
+  } else {
+    $("fileLabel").textContent = label;
+  }
+  const pathEl = $("filePath");
+  if (data.path) {
+    pathEl.hidden = false;
+    pathEl.textContent = data.path;
+    pathEl.title = data.path;
+  } else {
+    pathEl.hidden = true;
+    pathEl.textContent = "";
+  }
   $("downloadBtn").textContent = data.file ? `Скачать ${data.file}` : "Скачать";
   $("sheetsHint").textContent = data.file
     ? `Выберите целевой лист в ${data.file}`
     : "Сначала откройте Excel-файл через «Открыть Excel»";
+}
+
+async function loadWorkbook() {
+  const data = await api("/api/workbook");
+  state.sheets = data.sheets || [];
+  state.inplace = !!data.inplace;
+  updateFileLabel(data);
   renderSheets();
   if (!data.exists) {
     $("activeSheetTitle").textContent = "Загрузка данных";
@@ -56,6 +77,18 @@ async function loadWorkbook() {
   await loadBackups();
 }
 
+async function browseWorkbook() {
+  $("fileLabel").textContent = "Открытие проводника…";
+  const data = await api("/api/workbook/browse", { method: "POST" });
+  state.activeSheet = null;
+  state.mapping = {};
+  state.keys = new Set();
+  setResult(
+    `Открыт оригинал: ${data.file}\nПуть: ${data.path}\nЛистов: ${data.sheets.length}\nИзменения будут сохраняться в этот файл.`
+  );
+  await loadWorkbook();
+}
+
 async function openWorkbookFile(file) {
   const form = new FormData();
   form.append("file", file);
@@ -64,7 +97,9 @@ async function openWorkbookFile(file) {
   state.activeSheet = null;
   state.mapping = {};
   state.keys = new Set();
-  setResult(`Открыт файл: ${data.file}\nЛистов: ${data.sheets.length}`);
+  setResult(
+    `Открыта копия: ${data.file}\nЛистов: ${data.sheets.length}\nЧтобы писать в оригинал, нажмите «Открыть Excel» (проводнику Windows).`
+  );
   await loadWorkbook();
 }
 
@@ -350,6 +385,7 @@ function wireUi() {
   $("applyBtn").addEventListener("click", () => applyLoad());
   $("refreshBtn").addEventListener("click", () => loadWorkbook().catch((e) => setResult(e.message, true)));
   $("createSheetBtn").addEventListener("click", () => createSheet().catch((e) => setResult(e.message, true)));
+  $("browseBtn").addEventListener("click", () => browseWorkbook().catch((e) => setResult(e.message, true)));
   $("workbookInput").addEventListener("change", async () => {
     const file = $("workbookInput").files?.[0];
     if (!file) return;
@@ -409,7 +445,7 @@ async function createSheet() {
       }),
     });
     setResult(
-      `Лист создан: ${result.sheet}\nКолонки: ${result.columns.join(", ")}\nСтрок записано: ${result.inserted}\nБэкап: ${result.backup}`
+      `Лист создан: ${result.sheet}\nКолонки: ${result.columns.join(", ")}\nСтрок записано: ${result.inserted}\nСохранено в: ${result.saved_to || "—"}\nБэкап: ${result.backup}`
     );
     $("newSheetName").value = "";
     $("newSheetColumns").value = "";

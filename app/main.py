@@ -73,13 +73,29 @@ def workbook_info() -> dict:
         "path": info["path"],
         "selected": info["selected"],
         "exists": True,
+        "inplace": info.get("inplace", False),
         "sheets": sheets,
     }
 
 
+@app.post("/api/workbook/browse")
+def browse_workbook() -> dict:
+    """Open native Explorer dialog and bind the real file path for in-place edits."""
+    try:
+        opened = xls.browse_workbook()
+        sheets = xls.list_sheets()
+        return {**opened, "sheets": sheets}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/workbook/open")
 async def open_workbook(file: UploadFile = File(...)) -> dict:
-    """Open a workbook chosen in the OS file dialog / Explorer."""
+    """Open an uploaded browser copy (not the original disk path)."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
@@ -154,7 +170,7 @@ def apply_load(body: ApplyBody) -> dict:
             mapping=body.mapping,
             key_columns=body.key_columns,
         )
-    except (ValueError, KeyError, FileNotFoundError) as exc:
+    except (ValueError, KeyError, FileNotFoundError, PermissionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
 
@@ -204,7 +220,7 @@ def create_sheet(body: CreateSheetBody) -> dict:
             source_sheet=body.source_sheet,
             fill_data=body.fill_data,
         )
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, FileNotFoundError, PermissionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
