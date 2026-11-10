@@ -82,10 +82,10 @@ if not exist "TARGET.xlsx" (
 )
 
 echo.
-echo Starting server at http://127.0.0.1:8765
+echo Starting server at http://127.0.0.1:8766
 echo Use "Open Excel" in the browser to choose a workbook.
 echo Close this window to stop the loader.
 echo.
-start "" "http://127.0.0.1:8765"
-%PYTHON% -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+start "" "http://127.0.0.1:8766"
+%PYTHON% -m uvicorn app.main:app --host 127.0.0.1 --port 8766
 pause
