@@ -24,7 +24,7 @@
       <button class="btn primary" type="button" id="browseBtn">Открыть Excel</button>
       <label class="btn ghost open-btn" title="Открыть копию без записи в оригинал">
         Копия
-        <input type="file" id="workbookInput" accept=".xlsx,.xlsm" hidden />
+        <input type="file" id="workbookInput" accept=".xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm" hidden />
       </label>
       <a class="btn ghost" href="/api/download" id="downloadBtn">Скачать</a>
       <button class="btn ghost" type="button" id="refreshBtn">Обновить</button>
@@ -68,9 +68,9 @@
         <div class="step">
           <h3>1. Источник</h3>
           <label class="drop" id="dropZone">
-            <input type="file" id="fileInput" accept=".xlsx,.xlsm,.csv" hidden />
+            <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.xlsb,.csv" hidden />
             <strong>Перетащите файл сюда</strong>
-            <span>или нажмите, чтобы выбрать .xlsx / .csv</span>
+            <span>или нажмите, чтобы выбрать Excel / CSV</span>
           </label>
           <div id="uploadInfo" class="muted"></div>
           <label class="field" id="sourceSheetWrap" hidden>

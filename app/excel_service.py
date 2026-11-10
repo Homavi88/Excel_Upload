@@ -14,6 +14,9 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from . import excel_com
+from . import excel_ooxml
+
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TARGET = ROOT / "TARGET.xlsx"
 DATA_DIR = ROOT / "data"
@@ -21,6 +24,10 @@ BACKUP_DIR = ROOT / "backups"
 UPLOAD_DIR = ROOT / "uploads"
 ACTIVE_META = DATA_DIR / "active.json"
 WORKING_NAME = "working.xlsx"
+
+SUPPORTED_WORKBOOK_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm"}
+OPENPYXL_SUFFIXES = {".xlsx", ".xlsm", ".xltx", ".xltm"}
+SOURCE_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm", ".csv"}
 
 # Backward-compatible alias used by older callers/tests
 TARGET_PATH = DEFAULT_TARGET
@@ -128,16 +135,36 @@ def target_path() -> Path:
 
 def _validate_workbook(path: Path) -> int:
     suffix = path.suffix.lower()
-    if suffix not in {".xlsx", ".xlsm"}:
-        raise ValueError("Нужен файл .xlsx или .xlsm")
-    wb = load_workbook(path, read_only=True)
-    try:
-        sheet_count = len(wb.sheetnames)
-        if sheet_count < 1:
-            raise ValueError("В файле нет листов")
-        return sheet_count
-    finally:
-        wb.close()
+    if suffix not in SUPPORTED_WORKBOOK_SUFFIXES:
+        raise ValueError(
+            "Поддерживаются Excel-файлы: .xlsx .xlsm .xls .xlsb .xltx .xltm"
+        )
+    if suffix in OPENPYXL_SUFFIXES:
+        wb = load_workbook(path, read_only=True, keep_vba=(suffix in {".xlsm", ".xltm"}))
+        try:
+            sheet_count = len(wb.sheetnames)
+            if sheet_count < 1:
+                raise ValueError("В файле нет листов")
+            return sheet_count
+        finally:
+            wb.close()
+    # .xls / .xlsb require Excel COM on Windows
+    if excel_com.excel_com_available():
+        excel = excel_com._dispatch_excel()
+        wb = None
+        try:
+            wb = excel.Workbooks.Open(str(path.resolve()), UpdateLinks=0, ReadOnly=True)
+            count = int(wb.Worksheets.Count)
+            if count < 1:
+                raise ValueError("В файле нет листов")
+            return count
+        finally:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+            excel.Quit()
+    raise ValueError(
+        f"Формат {suffix} требует установленный Microsoft Excel (Windows)."
+    )
 
 
 def open_workbook_from_path(path: Path) -> dict[str, Any]:
@@ -179,7 +206,7 @@ def browse_workbook() -> dict[str, Any]:
         parent=root,
         title="Выберите Excel-файл",
         filetypes=[
-            ("Excel files", "*.xlsx *.xlsm"),
+            ("Excel files", "*.xlsx *.xlsm *.xls *.xlsb *.xltx *.xltm"),
             ("All files", "*.*"),
         ],
     )
@@ -190,15 +217,22 @@ def browse_workbook() -> dict[str, Any]:
 
 
 def open_workbook_file(source: Path, original_name: str) -> dict[str, Any]:
-    """Open an uploaded browser copy (changes stay in data/working.xlsx until download)."""
+    """Open an uploaded browser copy (changes stay in data/working.* until download)."""
     ensure_dirs()
     sheet_count = _validate_workbook(source)
+    suffix = source.suffix.lower() if source.suffix else ".xlsx"
+    if suffix not in SUPPORTED_WORKBOOK_SUFFIXES:
+        suffix = ".xlsx"
 
-    working = DATA_DIR / WORKING_NAME
+    working = DATA_DIR / f"working{suffix}"
+    # remove previous working copies with other extensions
+    for old in DATA_DIR.glob("working.*"):
+        if old.name != "active.json":
+            old.unlink(missing_ok=True)
     shutil.copy2(source, working)
     display_name = Path(original_name).name or working.name
-    if not display_name.lower().endswith((".xlsx", ".xlsm")):
-        display_name = f"{display_name}.xlsx"
+    if Path(display_name).suffix.lower() not in SUPPORTED_WORKBOOK_SUFFIXES:
+        display_name = f"{display_name}{suffix}"
     _write_active_meta(display_name, working, inplace=False)
     return {
         "file": display_name,
@@ -211,30 +245,41 @@ def open_workbook_file(source: Path, original_name: str) -> dict[str, Any]:
 
 
 def save_workbook(wb: Any) -> Path:
-    """Persist workbook to the active path with a clear lock error."""
+    """Persist workbook atomically to the active path."""
     path = target_path()
+    suffix = path.suffix.lower() or ".xlsx"
+    tmp = path.with_name(f".{path.stem}.tmp{suffix}")
     try:
-        wb.save(path)
+        wb.save(tmp)
+        tmp.replace(path)
     except PermissionError as exc:
+        tmp.unlink(missing_ok=True)
         raise PermissionError(
             f"Не удалось сохранить «{path.name}». Закройте файл в Excel и повторите."
         ) from exc
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 
 def backup_target() -> Path:
     ensure_dirs()
     info = active_info()
-    stem = _safe_stem(info.get("file") or "workbook")
+    src = target_path()
+    stem = _safe_stem(info.get("file") or src.name)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = BACKUP_DIR / f"{stem}_{stamp}.xlsx"
-    shutil.copy2(target_path(), dest)
+    dest = BACKUP_DIR / f"{stem}_{stamp}{src.suffix.lower() or '.xlsx'}"
+    shutil.copy2(src, dest)
     return dest
 
 
 def list_backups() -> list[dict[str, Any]]:
     ensure_dirs()
-    files = sorted(BACKUP_DIR.glob("*.xlsx"), reverse=True)
+    files = sorted(
+        [p for p in BACKUP_DIR.iterdir() if p.suffix.lower() in SUPPORTED_WORKBOOK_SUFFIXES],
+        reverse=True,
+    )
     return [
         {
             "name": f.name,
@@ -281,19 +326,70 @@ def _used_row_count(ws: Worksheet, header_row: int) -> int:
     return count
 
 
+def _keep_vba_for(path: Path) -> bool:
+    return path.suffix.lower() in {".xlsm", ".xltm"}
+
+
+def _list_sheets_com(path: Path) -> list[dict[str, Any]]:
+    excel = excel_com._dispatch_excel()
+    wb = None
+    try:
+        wb = excel.Workbooks.Open(str(path.resolve()), UpdateLinks=0, ReadOnly=True)
+        enriched: list[dict[str, Any]] = []
+        for i in range(1, wb.Worksheets.Count + 1):
+            ws = wb.Worksheets(i)
+            name = str(ws.Name)
+            header_row = _header_row_for(name)
+            headers = []
+            used = ws.UsedRange
+            last_col = int(used.Column + used.Columns.Count - 1) if used else 1
+            last_row = int(used.Row + used.Rows.Count - 1) if used else header_row
+            for c in range(1, max(last_col, 1) + 1):
+                value = ws.Cells(header_row, c).Value
+                if value in (None, ""):
+                    continue
+                headers.append(
+                    {
+                        "index": c - 1,
+                        "col": get_column_letter(c),
+                        "name": _norm(value),
+                    }
+                )
+            row_count = max(0, last_row - header_row) if headers else 0
+            enriched.append(
+                {
+                    "name": name,
+                    "header_row": header_row,
+                    "columns": headers,
+                    "row_count": row_count,
+                    "max_row": last_row,
+                    "max_col": last_col,
+                }
+            )
+        return enriched
+    finally:
+        if wb is not None:
+            wb.Close(SaveChanges=False)
+        excel.Quit()
+
+
 def list_sheets() -> list[dict[str, Any]]:
-    wb = load_workbook(target_path(), data_only=False, read_only=True)
+    path = target_path()
+    if path.suffix.lower() not in OPENPYXL_SUFFIXES:
+        if not excel_com.excel_com_available():
+            raise ValueError("Для этого формата нужен Microsoft Excel на Windows")
+        return _list_sheets_com(path)
+
+    wb = load_workbook(path, data_only=False, read_only=True, keep_vba=_keep_vba_for(path))
     result: list[dict[str, Any]] = []
     try:
         for name in wb.sheetnames:
-            ws = wb[name]
             header_row = _header_row_for(name)
-            # read_only worksheets need iteration; reopen without read_only for headers
             result.append({"name": name, "header_row": header_row})
     finally:
         wb.close()
 
-    wb = load_workbook(target_path(), data_only=False)
+    wb = load_workbook(path, data_only=False, keep_vba=_keep_vba_for(path))
     try:
         enriched: list[dict[str, Any]] = []
         for item in result:
@@ -317,7 +413,45 @@ def list_sheets() -> list[dict[str, Any]]:
 
 
 def preview_sheet(sheet_name: str, limit: int = 30) -> dict[str, Any]:
-    wb = load_workbook(target_path(), data_only=True)
+    path = target_path()
+    if path.suffix.lower() not in OPENPYXL_SUFFIXES:
+        sheets = {s["name"]: s for s in list_sheets()}
+        if sheet_name not in sheets:
+            raise KeyError(f"Лист не найден: {sheet_name}")
+        meta = sheets[sheet_name]
+        excel = excel_com._dispatch_excel()
+        wb = None
+        try:
+            wb = excel.Workbooks.Open(str(path.resolve()), UpdateLinks=0, ReadOnly=True)
+            ws = wb.Worksheets(sheet_name)
+            header_row = meta["header_row"]
+            columns = [c["name"] for c in meta["columns"]]
+            col_indexes = [c["index"] + 1 for c in meta["columns"]]
+            rows: list[dict[str, Any]] = []
+            last = int(ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1) if ws.UsedRange else header_row
+            for row_idx in range(header_row + 1, last + 1):
+                values = [ws.Cells(row_idx, col).Value for col in col_indexes]
+                if all(v in (None, "") for v in values):
+                    continue
+                row_obj = {columns[i]: values[i] for i in range(len(columns))}
+                row_obj["__row"] = row_idx
+                rows.append(row_obj)
+                if len(rows) >= limit:
+                    break
+            return {
+                "sheet": sheet_name,
+                "header_row": header_row,
+                "columns": columns,
+                "rows": rows,
+                "shown": len(rows),
+                "total_estimate": meta["row_count"],
+            }
+        finally:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+            excel.Quit()
+
+    wb = load_workbook(path, data_only=True, keep_vba=_keep_vba_for(path))
     try:
         if sheet_name not in wb.sheetnames:
             raise KeyError(f"Лист не найден: {sheet_name}")
@@ -325,7 +459,7 @@ def preview_sheet(sheet_name: str, limit: int = 30) -> dict[str, Any]:
         header_row = _header_row_for(sheet_name)
         headers = _read_headers(ws, header_row)
         col_indexes = [h["index"] + 1 for h in headers]
-        rows: list[dict[str, Any]] = []
+        rows = []
         for row_idx in range(header_row + 1, ws.max_row + 1):
             values = [ws.cell(row_idx, col).value for col in col_indexes]
             if all(v in (None, "") for v in values):
@@ -388,7 +522,7 @@ def _records_from_csv(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
 
 
 def _records_from_excel(path: Path, sheet_name: str | None = None) -> tuple[list[str], list[dict[str, Any]]]:
-    wb = load_workbook(path, data_only=True, read_only=True)
+    wb = load_workbook(path, data_only=True, read_only=True, keep_vba=_keep_vba_for(path))
     try:
         if sheet_name is None:
             ws = wb[wb.sheetnames[0]]
@@ -428,11 +562,25 @@ def _records_from_upload(path: Path, sheet_name: str | None = None) -> tuple[lis
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return _records_from_csv(path)
-    if suffix in {".xlsx", ".xlsm"}:
+    if suffix in OPENPYXL_SUFFIXES:
         return _records_from_excel(path, sheet_name)
-    if suffix == ".xls":
-        raise ValueError("Формат .xls не поддерживается. Сохраните файл как .xlsx или .csv")
-    raise ValueError("Поддерживаются только .xlsx / .xlsm / .csv")
+    if suffix in {".xls", ".xlsb"} and excel_com.excel_com_available():
+        # Save a temporary xlsx snapshot via Excel for reading
+        excel = excel_com._dispatch_excel()
+        wb = None
+        tmp = UPLOAD_DIR / f"conv_{path.stem}.xlsx"
+        try:
+            wb = excel.Workbooks.Open(str(path.resolve()), UpdateLinks=0, ReadOnly=True)
+            # 51 = xlOpenXMLWorkbook (.xlsx)
+            wb.SaveAs(str(tmp.resolve()), FileFormat=51)
+            wb.Close(SaveChanges=False)
+            wb = None
+            return _records_from_excel(tmp, sheet_name)
+        finally:
+            if wb is not None:
+                wb.Close(SaveChanges=False)
+            excel.Quit()
+    raise ValueError("Поддерживаются .xlsx .xlsm .xls .xlsb .xltx .xltm .csv")
 
 
 def inspect_upload(path: Path) -> dict[str, Any]:
@@ -451,10 +599,20 @@ def inspect_upload(path: Path) -> dict[str, Any]:
             ]
         }
 
-    if suffix == ".xls":
-        raise ValueError("Формат .xls не поддерживается. Сохраните файл как .xlsx или .csv")
+    if suffix in {".xls", ".xlsb"}:
+        columns, rows = _records_from_upload(path)
+        return {
+            "sheets": [
+                {
+                    "name": path.stem,
+                    "columns": columns,
+                    "row_count": len(rows),
+                    "preview": [{k: ("" if v is None else v) for k, v in row.items()} for row in rows[:15]],
+                }
+            ]
+        }
 
-    wb = load_workbook(path, data_only=True, read_only=True)
+    wb = load_workbook(path, data_only=True, read_only=True, keep_vba=_keep_vba_for(path))
     try:
         sheets: list[dict[str, Any]] = []
         for name in wb.sheetnames:
@@ -519,8 +677,48 @@ def apply_load(
     if missing_src:
         raise ValueError(f"В источнике нет колонок: {', '.join(missing_src)}")
 
+    incoming: list[dict[str, Any]] = []
+    for row in source_rows:
+        item: dict[str, Any] = {}
+        empty = True
+        for target_col, source_col in active_map.items():
+            value = _clean_cell(row.get(source_col))
+            item[target_col] = value
+            if value not in (None, ""):
+                empty = False
+        if not empty:
+            incoming.append(item)
+
     backup = backup_target()
-    wb = load_workbook(target_path())
+    path = target_path()
+
+    if excel_com.excel_com_available():
+        stats = excel_com.apply_values_com(
+            path,
+            sheet_name=target_sheet,
+            header_row=_header_row_for(target_sheet),
+            mode=mode,
+            rows=incoming,
+            key_columns=key_columns,
+        )
+        stats.update(
+            {
+                "mode": mode,
+                "target_sheet": target_sheet,
+                "backup": str(backup.relative_to(ROOT)),
+                "incoming_rows": len(incoming),
+                "columns_written": list(active_map.keys()),
+                "saved_to": str(path),
+            }
+        )
+        return stats
+
+    if path.suffix.lower() not in OPENPYXL_SUFFIXES:
+        raise ValueError(
+            "Для этого формата нужен Microsoft Excel на Windows (пакет pywin32)."
+        )
+
+    wb = load_workbook(path, keep_vba=_keep_vba_for(path))
     try:
         if target_sheet not in wb.sheetnames:
             raise KeyError(f"Лист не найден: {target_sheet}")
@@ -533,19 +731,6 @@ def apply_load(
         for target_col in active_map:
             if target_col not in name_to_col:
                 raise ValueError(f"На целевом листе нет колонки: {target_col}")
-
-        # Build incoming rows in target column order for mapped fields only
-        incoming: list[dict[str, Any]] = []
-        for row in source_rows:
-            item: dict[str, Any] = {}
-            empty = True
-            for target_col, source_col in active_map.items():
-                value = _clean_cell(row.get(source_col))
-                item[target_col] = value
-                if value not in (None, ""):
-                    empty = False
-            if not empty:
-                incoming.append(item)
 
         stats = {
             "mode": mode,
@@ -698,7 +883,7 @@ def create_sheet(
     source_sheet: str | None = None,
     fill_data: bool = True,
 ) -> dict[str, Any]:
-    """Create a new worksheet. Optionally seed headers/data from an uploaded file."""
+    """Create a new worksheet without rewriting/stripping existing workbook parts."""
     sheet_name = _validate_sheet_name(name)
     columns = _normalize_columns(columns)
 
@@ -712,43 +897,46 @@ def create_sheet(
     if not columns:
         raise ValueError("Укажите колонки или загрузите файл-источник с заголовками")
 
+    data_matrix: list[list[Any]] = []
+    inserted = 0
+    if fill_data and source_rows:
+        source_col_set = set(source_columns)
+        for row in source_rows:
+            values = []
+            empty = True
+            for col_name in columns:
+                value = _clean_cell(row.get(col_name)) if col_name in source_col_set else None
+                values.append(value)
+                if value not in (None, ""):
+                    empty = False
+            if not empty:
+                data_matrix.append(values)
+                inserted += 1
+
     backup = backup_target()
-    wb = load_workbook(target_path())
-    try:
-        existing_lower = {s.lower(): s for s in wb.sheetnames}
-        if sheet_name.lower() in existing_lower:
-            raise ValueError(f"Лист уже существует: {existing_lower[sheet_name.lower()]}")
+    path = target_path()
+    suffix = path.suffix.lower()
+    engine = "ooxml"
 
-        ws = wb.create_sheet(title=sheet_name)
-        for idx, col_name in enumerate(columns, start=1):
-            ws.cell(1, idx).value = col_name
+    if suffix in excel_ooxml.OOXML_SUFFIXES:
+        # Surgical OOXML edit preserves drawings/media/external links.
+        excel_ooxml.create_sheet_ooxml(path, sheet_name, columns, data_matrix)
+        engine = "ooxml"
+    elif excel_com.excel_com_available():
+        excel_com.create_sheet_com(path, sheet_name, columns, data_matrix)
+        engine = "excel-com"
+    else:
+        raise ValueError(
+            f"Нельзя безопасно изменить {suffix} без Microsoft Excel на Windows."
+        )
 
-        inserted = 0
-        if fill_data and source_rows:
-            write_row = 2
-            source_col_set = set(source_columns)
-            for row in source_rows:
-                empty = True
-                for idx, col_name in enumerate(columns, start=1):
-                    if col_name not in source_col_set:
-                        continue
-                    value = _clean_cell(row.get(col_name))
-                    if value not in (None, ""):
-                        empty = False
-                    ws.cell(write_row, idx).value = value
-                if not empty:
-                    inserted += 1
-                    write_row += 1
-
-        saved_to = save_workbook(wb)
-        return {
-            "sheet": sheet_name,
-            "columns": columns,
-            "inserted": inserted,
-            "backup": str(backup.relative_to(ROOT)),
-            "from_upload": upload_path is not None,
-            "saved_to": str(saved_to),
-            "inplace": bool(active_info().get("inplace")),
-        }
-    finally:
-        wb.close()
+    return {
+        "sheet": sheet_name,
+        "columns": columns,
+        "inserted": inserted,
+        "backup": str(backup.relative_to(ROOT)),
+        "from_upload": upload_path is not None,
+        "saved_to": str(path),
+        "inplace": bool(active_info().get("inplace")),
+        "engine": engine,
+    }
