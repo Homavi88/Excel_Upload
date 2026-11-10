@@ -54,15 +54,49 @@ def index() -> HTMLResponse:
 
 @app.get("/api/workbook")
 def workbook_info() -> dict:
+    info = xls.active_info()
+    if not info["exists"]:
+        return {
+            "file": None,
+            "path": None,
+            "selected": False,
+            "exists": False,
+            "sheets": [],
+            "message": "Выберите Excel-файл через «Открыть Excel».",
+        }
     try:
         sheets = xls.list_sheets()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
-        "file": xls.TARGET_PATH.name,
-        "path": str(xls.TARGET_PATH),
+        "file": info["file"],
+        "path": info["path"],
+        "selected": info["selected"],
+        "exists": True,
         "sheets": sheets,
     }
+
+
+@app.post("/api/workbook/open")
+async def open_workbook(file: UploadFile = File(...)) -> dict:
+    """Open a workbook chosen in the OS file dialog / Explorer."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Файл не выбран")
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".xlsx", ".xlsm"}:
+        raise HTTPException(status_code=400, detail="Нужен файл .xlsx или .xlsm")
+
+    xls.ensure_dirs()
+    temp = xls.UPLOAD_DIR / f"open_{uuid.uuid4().hex}{suffix}"
+    temp.write_bytes(await file.read())
+    try:
+        opened = xls.open_workbook_file(temp, file.filename)
+        sheets = xls.list_sheets()
+        return {**opened, "sheets": sheets}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 @app.get("/api/sheets/{sheet_name}/preview")
@@ -127,28 +161,22 @@ def apply_load(body: ApplyBody) -> dict:
 
 @app.get("/api/download")
 def download_target() -> FileResponse:
-    path = xls.target_path()
+    try:
+        path = xls.target_path()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    info = xls.active_info()
+    filename = info.get("file") or path.name
     return FileResponse(
         path,
-        filename=path.name,
+        filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 
 @app.get("/api/backups")
 def list_backups() -> dict:
-    xls.ensure_dirs()
-    files = sorted(xls.BACKUP_DIR.glob("TARGET_*.xlsx"), reverse=True)
-    return {
-        "backups": [
-            {
-                "name": f.name,
-                "size": f.stat().st_size,
-                "mtime": f.stat().st_mtime,
-            }
-            for f in files[:50]
-        ]
-    }
+    return {"backups": xls.list_backups()}
 
 
 @app.post("/api/restore")

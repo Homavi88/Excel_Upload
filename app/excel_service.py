@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 import shutil
 from datetime import datetime
@@ -14,9 +15,15 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 ROOT = Path(__file__).resolve().parent.parent
-TARGET_PATH = ROOT / "TARGET.xlsx"
+DEFAULT_TARGET = ROOT / "TARGET.xlsx"
+DATA_DIR = ROOT / "data"
 BACKUP_DIR = ROOT / "backups"
 UPLOAD_DIR = ROOT / "uploads"
+ACTIVE_META = DATA_DIR / "active.json"
+WORKING_NAME = "working.xlsx"
+
+# Backward-compatible alias used by older callers/tests
+TARGET_PATH = DEFAULT_TARGET
 
 # Sheets where the real header is not on row 1
 HEADER_ROW_OVERRIDES: dict[str, int] = {
@@ -27,20 +34,137 @@ HEADER_ROW_OVERRIDES: dict[str, int] = {
 def ensure_dirs() -> None:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_stem(name: str) -> str:
+    stem = Path(name).stem.strip() or "workbook"
+    cleaned = re.sub(r"[^\w\-а-яА-ЯёЁ]+", "_", stem, flags=re.UNICODE).strip("_")
+    return (cleaned or "workbook")[:40]
+
+
+def _read_active_meta() -> dict[str, Any] | None:
+    if not ACTIVE_META.exists():
+        return None
+    try:
+        data = json.loads(ACTIVE_META.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _write_active_meta(original_name: str, path: Path) -> None:
+    ensure_dirs()
+    ACTIVE_META.write_text(
+        json.dumps(
+            {
+                "original_name": original_name,
+                "path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def active_info() -> dict[str, Any]:
+    """Return currently selected workbook metadata."""
+    ensure_dirs()
+    meta = _read_active_meta()
+    if meta and meta.get("path"):
+        raw = Path(meta["path"])
+        path = raw if raw.is_absolute() else (ROOT / raw)
+        if path.exists():
+            return {
+                "file": meta.get("original_name") or path.name,
+                "path": str(path),
+                "selected": True,
+                "exists": True,
+            }
+
+    if DEFAULT_TARGET.exists():
+        return {
+            "file": DEFAULT_TARGET.name,
+            "path": str(DEFAULT_TARGET),
+            "selected": False,
+            "exists": True,
+        }
+
+    return {
+        "file": None,
+        "path": None,
+        "selected": False,
+        "exists": False,
+    }
 
 
 def target_path() -> Path:
-    if not TARGET_PATH.exists():
-        raise FileNotFoundError(f"Не найден файл: {TARGET_PATH}")
-    return TARGET_PATH
+    info = active_info()
+    if not info["exists"] or not info["path"]:
+        raise FileNotFoundError(
+            "Excel-файл не выбран. Нажмите «Открыть Excel» и выберите файл в проводнике."
+        )
+    path = Path(info["path"])
+    if not path.exists():
+        raise FileNotFoundError(f"Не найден файл: {path}")
+    return path
+
+
+def open_workbook_file(source: Path, original_name: str) -> dict[str, Any]:
+    """Set the working workbook from a file chosen in Explorer / uploaded by the user."""
+    ensure_dirs()
+    suffix = source.suffix.lower()
+    if suffix not in {".xlsx", ".xlsm"}:
+        raise ValueError("Нужен файл .xlsx или .xlsm")
+
+    # Validate workbook can be opened before replacing the active file
+    wb = load_workbook(source, read_only=True)
+    try:
+        sheet_count = len(wb.sheetnames)
+        if sheet_count < 1:
+            raise ValueError("В файле нет листов")
+    finally:
+        wb.close()
+
+    working = DATA_DIR / WORKING_NAME
+    shutil.copy2(source, working)
+    display_name = Path(original_name).name or working.name
+    if not display_name.lower().endswith((".xlsx", ".xlsm")):
+        display_name = f"{display_name}.xlsx"
+    _write_active_meta(display_name, working)
+    return {
+        "file": display_name,
+        "path": str(working),
+        "sheets": sheet_count,
+        "selected": True,
+        "exists": True,
+    }
 
 
 def backup_target() -> Path:
     ensure_dirs()
+    info = active_info()
+    stem = _safe_stem(info.get("file") or "workbook")
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = BACKUP_DIR / f"TARGET_{stamp}.xlsx"
+    dest = BACKUP_DIR / f"{stem}_{stamp}.xlsx"
     shutil.copy2(target_path(), dest)
     return dest
+
+
+def list_backups() -> list[dict[str, Any]]:
+    ensure_dirs()
+    files = sorted(BACKUP_DIR.glob("*.xlsx"), reverse=True)
+    return [
+        {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "mtime": f.stat().st_mtime,
+        }
+        for f in files[:50]
+    ]
 
 
 def _norm(value: Any) -> str:

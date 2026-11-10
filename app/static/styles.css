@@ -72,7 +72,9 @@ body {
   letter-spacing: -0.03em;
 }
 .brand-sub { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
-.top-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.top-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.open-btn { cursor: pointer; }
+.open-btn input { display: none; }
 
 .layout {
   display: grid;

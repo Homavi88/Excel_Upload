@@ -26,15 +26,46 @@ function setResult(text, isError = false) {
 
 async function loadWorkbook() {
   const data = await api("/api/workbook");
-  state.sheets = data.sheets;
-  $("fileLabel").textContent = data.file;
+  state.sheets = data.sheets || [];
+  $("fileLabel").textContent = data.file || "Файл не выбран";
+  $("downloadBtn").textContent = data.file ? `Скачать ${data.file}` : "Скачать";
+  $("sheetsHint").textContent = data.file
+    ? `Выберите целевой лист в ${data.file}`
+    : "Сначала откройте Excel-файл через «Открыть Excel»";
   renderSheets();
+  if (!data.exists) {
+    $("activeSheetTitle").textContent = "Загрузка данных";
+    $("activeSheetMeta").textContent = "Откройте Excel-файл в шапке страницы";
+    $("previewMeta").textContent = "—";
+    $("previewTable").querySelector("thead").innerHTML = "";
+    $("previewTable").querySelector("tbody").innerHTML = "";
+    state.activeSheet = null;
+    renderKeyChips();
+    renderMapping();
+    maybeEnableApply();
+    await loadBackups();
+    return;
+  }
   if (!state.activeSheet && data.sheets.length) {
     selectSheet(data.sheets[0].name);
-  } else if (state.activeSheet) {
+  } else if (state.activeSheet && data.sheets.some((s) => s.name === state.activeSheet)) {
     selectSheet(state.activeSheet);
+  } else if (data.sheets.length) {
+    selectSheet(data.sheets[0].name);
   }
   await loadBackups();
+}
+
+async function openWorkbookFile(file) {
+  const form = new FormData();
+  form.append("file", file);
+  $("fileLabel").textContent = "Открытие…";
+  const data = await api("/api/workbook/open", { method: "POST", body: form });
+  state.activeSheet = null;
+  state.mapping = {};
+  state.keys = new Set();
+  setResult(`Открыт файл: ${data.file}\nЛистов: ${data.sheets.length}`);
+  await loadWorkbook();
 }
 
 function renderSheets() {
@@ -255,7 +286,7 @@ async function loadBackups() {
     btn.className = "btn danger";
     btn.textContent = "Восстановить";
     btn.addEventListener("click", async () => {
-      if (!confirm(`Восстановить TARGET.xlsx из ${item.name}?`)) return;
+      if (!confirm(`Восстановить текущий Excel из ${item.name}?`)) return;
       try {
         await api("/api/restore", {
           method: "POST",
@@ -319,6 +350,17 @@ function wireUi() {
   $("applyBtn").addEventListener("click", () => applyLoad());
   $("refreshBtn").addEventListener("click", () => loadWorkbook().catch((e) => setResult(e.message, true)));
   $("createSheetBtn").addEventListener("click", () => createSheet().catch((e) => setResult(e.message, true)));
+  $("workbookInput").addEventListener("change", async () => {
+    const file = $("workbookInput").files?.[0];
+    if (!file) return;
+    try {
+      await openWorkbookFile(file);
+    } catch (err) {
+      setResult(err.message, true);
+    } finally {
+      $("workbookInput").value = "";
+    }
+  });
   $("newSheetFromUpload").addEventListener("change", () => {
     const on = $("newSheetFromUpload").checked;
     $("createSheetHint").textContent = on

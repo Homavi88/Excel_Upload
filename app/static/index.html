@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Excel Loader · TARGET</title>
+  <title>Excel Loader</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -16,11 +16,15 @@
       <span class="mark">XL</span>
       <div>
         <p class="brand-name">Excel Loader</p>
-        <p class="brand-sub" id="fileLabel">TARGET.xlsx</p>
+        <p class="brand-sub" id="fileLabel">Файл не выбран</p>
       </div>
     </div>
     <div class="top-actions">
-      <a class="btn ghost" href="/api/download" id="downloadBtn">Скачать TARGET.xlsx</a>
+      <label class="btn primary open-btn">
+        Открыть Excel
+        <input type="file" id="workbookInput" accept=".xlsx,.xlsm" hidden />
+      </label>
+      <a class="btn ghost" href="/api/download" id="downloadBtn">Скачать</a>
       <button class="btn ghost" type="button" id="refreshBtn">Обновить</button>
     </div>
   </header>
@@ -29,7 +33,7 @@
     <aside class="panel sheets-panel">
       <div class="panel-head">
         <h2>Листы</h2>
-        <p>Выберите целевой лист в TARGET.xlsx</p>
+        <p id="sheetsHint">Сначала откройте Excel-файл</p>
       </div>
       <div id="sheetList" class="sheet-list"></div>
       <div class="new-sheet">
@@ -105,7 +109,7 @@
 
         <div class="step">
           <h3>3. Соответствие колонок</h3>
-          <p class="muted">Слева — колонка TARGET, справа — колонка из загруженного файла</p>
+          <p class="muted">Слева — колонка выбранного Excel, справа — колонка из файла-источника данных</p>
           <div id="mappingTable" class="mapping"></div>
           <div class="row-actions">
             <button class="btn ghost" type="button" id="autoMapBtn">Автосопоставление</button>
