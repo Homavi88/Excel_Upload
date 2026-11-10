@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Excel Loader · TARGET</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">XL</span>
+      <div>
+        <p class="brand-name">Excel Loader</p>
+        <p class="brand-sub" id="fileLabel">TARGET.xlsx</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <a class="btn ghost" href="/api/download" id="downloadBtn">Скачать TARGET.xlsx</a>
+      <button class="btn ghost" type="button" id="refreshBtn">Обновить</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel sheets-panel">
+      <div class="panel-head">
+        <h2>Листы</h2>
+        <p>Выберите целевой лист в TARGET.xlsx</p>
+      </div>
+      <div id="sheetList" class="sheet-list"></div>
+      <div class="new-sheet">
+        <h3>Новый лист</h3>
+        <label class="field">
+          <span>Название</span>
+          <input type="text" id="newSheetName" maxlength="31" placeholder="например New Yield" />
+        </label>
+        <label class="field">
+          <span>Колонки через запятую</span>
+          <input type="text" id="newSheetColumns" placeholder="Year, Month, Value" />
+        </label>
+        <label class="check">
+          <input type="checkbox" id="newSheetFromUpload" />
+          <span>Взять колонки и данные из загруженного файла</span>
+        </label>
+        <button class="btn primary" type="button" id="createSheetBtn">Создать лист</button>
+        <p id="createSheetHint" class="muted">Можно создать пустой лист с заголовками или импортировать источник как новый лист.</p>
+      </div>
+    </aside>
+
+    <section class="panel work-panel">
+      <div class="panel-head">
+        <h2 id="activeSheetTitle">Загрузка данных</h2>
+        <p id="activeSheetMeta">Выберите лист слева</p>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <h3>1. Источник</h3>
+          <label class="drop" id="dropZone">
+            <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden />
+            <strong>Перетащите файл сюда</strong>
+            <span>или нажмите, чтобы выбрать .xlsx / .csv</span>
+          </label>
+          <div id="uploadInfo" class="muted"></div>
+          <label class="field" id="sourceSheetWrap" hidden>
+            <span>Лист источника</span>
+            <select id="sourceSheet"></select>
+          </label>
+        </div>
+
+        <div class="step">
+          <h3>2. Режим</h3>
+          <div class="modes" id="modeGroup">
+            <label class="mode">
+              <input type="radio" name="mode" value="upsert" checked />
+              <span>
+                <strong>Обновить / добавить</strong>
+                <em>Сопоставить строки по ключу, обновить значения, новые — в конец</em>
+              </span>
+            </label>
+            <label class="mode">
+              <input type="radio" name="mode" value="append" />
+              <span>
+                <strong>Добавить строки</strong>
+                <em>Все строки источника дописываются в конец листа</em>
+              </span>
+            </label>
+            <label class="mode">
+              <input type="radio" name="mode" value="replace_sheet" />
+              <span>
+                <strong>Заменить данные листа</strong>
+                <em>Очистить строки под заголовком и записать новые</em>
+              </span>
+            </label>
+          </div>
+          <label class="field" id="keysWrap">
+            <span>Ключевые колонки (для обновления)</span>
+            <div id="keyColumns" class="chips"></div>
+          </label>
+        </div>
+
+        <div class="step">
+          <h3>3. Соответствие колонок</h3>
+          <p class="muted">Слева — колонка TARGET, справа — колонка из загруженного файла</p>
+          <div id="mappingTable" class="mapping"></div>
+          <div class="row-actions">
+            <button class="btn ghost" type="button" id="autoMapBtn">Автосопоставление</button>
+            <button class="btn primary" type="button" id="applyBtn" disabled>Применить загрузку</button>
+          </div>
+          <pre id="resultBox" class="result" hidden></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel preview-panel">
+      <div class="panel-head">
+        <h2>Превью листа</h2>
+        <p id="previewMeta">—</p>
+      </div>
+      <div class="table-wrap">
+        <table id="previewTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="panel-head backups-head">
+        <h2>Бэкапы</h2>
+        <p>Перед каждой записью создаётся копия</p>
+      </div>
+      <div id="backupList" class="backup-list"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
