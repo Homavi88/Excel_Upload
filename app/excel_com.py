@@ -79,6 +79,29 @@ def create_sheet_com(
         excel.Quit()
 
 
+def delete_sheet_com(path: Path, sheet_name: str) -> dict[str, Any]:
+    if not excel_com_available():
+        raise RuntimeError("Excel COM недоступен")
+    excel = _dispatch_excel()
+    wb = None
+    try:
+        wb = excel.Workbooks.Open(str(path.resolve()), UpdateLinks=0, ReadOnly=False)
+        if int(wb.Worksheets.Count) <= 1:
+            raise ValueError("Нельзя удалить последний лист книги")
+        try:
+            ws = wb.Worksheets(sheet_name)
+        except Exception as exc:  # noqa: BLE001
+            raise KeyError(f"Лист не найден: {sheet_name}") from exc
+        excel.DisplayAlerts = False
+        ws.Delete()
+        wb.Save()
+        return {"sheet": sheet_name, "engine": "excel-com"}
+    finally:
+        if wb is not None:
+            wb.Close(SaveChanges=False)
+        excel.Quit()
+
+
 def apply_values_com(
     path: Path,
     *,

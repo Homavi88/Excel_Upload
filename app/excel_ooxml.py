@@ -164,3 +164,134 @@ def create_sheet_ooxml(
         "rows": len(data_rows),
         "columns": headers,
     }
+
+
+def delete_sheet_ooxml(path: Path, sheet_name: str) -> dict[str, Any]:
+    """Remove a worksheet from an OOXML workbook while keeping other parts intact."""
+    suffix = path.suffix.lower()
+    if suffix not in OOXML_SUFFIXES:
+        raise ValueError("OOXML delete_sheet поддерживает только .xlsx / .xlsm / .xltx / .xltm")
+
+    with ZipFile(path, "r") as zin:
+        names = zin.namelist()
+        if "xl/workbook.xml" not in names or "xl/_rels/workbook.xml.rels" not in names:
+            raise ValueError("Некорректный Excel-файл: нет workbook.xml")
+
+        workbook_xml = zin.read("xl/workbook.xml").decode("utf-8")
+        rels_xml = zin.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+        ctypes_xml = zin.read("[Content_Types].xml").decode("utf-8")
+
+        sheet_names = _existing_sheet_names(workbook_xml)
+        if len(sheet_names) <= 1:
+            raise ValueError("Нельзя удалить последний лист книги")
+
+        match = re.search(
+            rf'<sheet[^>]*name="{re.escape(sheet_name)}"[^>]*/>',
+            workbook_xml,
+        )
+        if not match:
+            # try case-insensitive by scanning
+            match = None
+            for m in re.finditer(r"<sheet\b[^>]*/>", workbook_xml):
+                nm = re.search(r'name="([^"]+)"', m.group(0))
+                if nm and nm.group(1).lower() == sheet_name.lower():
+                    match = m
+                    sheet_name = nm.group(1)
+                    break
+        if not match:
+            raise KeyError(f"Лист не найден: {sheet_name}")
+
+        sheet_tag = match.group(0)
+        rid_m = re.search(r'r:id="([^"]+)"', sheet_tag)
+        if not rid_m:
+            raise ValueError("Не удалось определить связь листа")
+        rid = rid_m.group(1)
+
+        rel_m = re.search(
+            rf'<Relationship[^>]*Id="{re.escape(rid)}"[^>]*/>',
+            rels_xml,
+        )
+        if not rel_m:
+            raise ValueError(f"Не найдена связь {rid} в workbook.xml.rels")
+        rel_tag = rel_m.group(0)
+        target_m = re.search(r'Target="([^"]+)"', rel_tag)
+        if not target_m:
+            raise ValueError("Не удалось определить файл листа")
+        target = target_m.group(1).lstrip("/")
+        if target.startswith("worksheets/"):
+            part_name = f"xl/{target}"
+        elif target.startswith("/xl/"):
+            part_name = target[1:]
+        elif target.startswith("xl/"):
+            part_name = target
+        else:
+            part_name = f"xl/worksheets/{Path(target).name}"
+
+        workbook_xml = workbook_xml.replace(sheet_tag, "", 1)
+        rels_xml = rels_xml.replace(rel_tag, "", 1)
+
+        # Remove content type override(s) for this part
+        part_path = "/" + part_name
+        ctypes_xml = re.sub(
+            rf'<Override[^>]*PartName="{re.escape(part_path)}"[^>]*/>',
+            "",
+            ctypes_xml,
+        )
+
+        remove_prefixes = {
+            part_name,
+            part_name.replace("worksheets/", "worksheets/_rels/") + ".rels"
+            if "/_rels/" not in part_name
+            else None,
+        }
+        # Also common pattern: xl/worksheets/_rels/sheetN.xml.rels
+        sheet_file = Path(part_name).name
+        remove_prefixes.add(f"xl/worksheets/_rels/{sheet_file}.rels")
+        remove_prefixes.discard(None)
+
+        # Collect drawing targets from sheet rels to optionally remove if unused
+        sheet_rels_name = f"xl/worksheets/_rels/{sheet_file}.rels"
+        drawings_to_check: list[str] = []
+        if sheet_rels_name in names:
+            sheet_rels = zin.read(sheet_rels_name).decode("utf-8")
+            for dm in re.finditer(r'Target="([^"]+)"', sheet_rels):
+                t = dm.group(1)
+                if "drawing" in t.lower():
+                    if t.startswith("../"):
+                        drawings_to_check.append("xl/" + t[3:])
+                    elif t.startswith("/xl/"):
+                        drawings_to_check.append(t[1:])
+                    elif t.startswith("xl/"):
+                        drawings_to_check.append(t)
+
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=suffix, dir=str(path.parent))
+        tmp_path = Path(tmp_name)
+        try:
+            import os
+
+            os.close(tmp_fd)
+            with ZipFile(tmp_path, "w") as zout:
+                for info in zin.infolist():
+                    if info.filename in remove_prefixes:
+                        continue
+                    if info.filename == "xl/calcChain.xml":
+                        continue
+                    data = zin.read(info.filename)
+                    if info.filename == "xl/workbook.xml":
+                        data = workbook_xml.encode("utf-8")
+                    elif info.filename == "xl/_rels/workbook.xml.rels":
+                        data = rels_xml.encode("utf-8")
+                    elif info.filename == "[Content_Types].xml":
+                        data = ctypes_xml.encode("utf-8")
+                    zout.writestr(info, data)
+
+            shutil.move(str(tmp_path), str(path))
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+
+    return {
+        "sheet": sheet_name,
+        "removed_part": part_name,
+        "drawings_referenced": drawings_to_check,
+    }

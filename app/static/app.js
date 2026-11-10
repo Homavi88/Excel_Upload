@@ -276,14 +276,49 @@ async function openWorkbookFile(file) {
 function renderSheets() {
   const root = $("sheetList");
   root.innerHTML = "";
+  const canDelete = state.sheets.length > 1;
   for (const sheet of state.sheets) {
+    const row = document.createElement("div");
+    row.className = "sheet-row" + (sheet.name === state.activeSheet ? " active" : "");
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "sheet-btn" + (sheet.name === state.activeSheet ? " active" : "");
     btn.innerHTML = `<strong>${escapeHtml(sheet.name)}</strong><span>${sheet.row_count} строк · ${sheet.columns.length} кол.</span>`;
     btn.addEventListener("click", () => selectSheet(sheet.name));
-    root.appendChild(btn);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "btn danger sheet-del";
+    del.textContent = "Удалить";
+    del.title = canDelete ? "Удалить лист из книги" : "Нельзя удалить последний лист";
+    del.disabled = !canDelete;
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSheet(sheet.name).catch((err) => setResult(err.message, true));
+    });
+
+    row.append(btn, del);
+    root.appendChild(row);
   }
+}
+
+async function deleteSheet(name) {
+  if (!confirm(`Удалить лист «${name}» из книги?\nПеред удалением будет создан backup.`)) {
+    return;
+  }
+  const result = await api("/api/sheets/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  setResult(
+    `Лист удалён: ${result.sheet}\nСохранено в: ${result.saved_to || "—"}\nБэкап: ${result.backup}`
+  );
+  if (state.activeSheet === name) {
+    state.activeSheet = null;
+  }
+  await loadWorkbook();
 }
 
 async function selectSheet(name) {

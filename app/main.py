@@ -50,6 +50,10 @@ class CreateSheetBody(BaseModel):
     fill_data: bool = True
 
 
+class DeleteSheetBody(BaseModel):
+    name: str
+
+
 class LibraryAddBody(BaseModel):
     path: str
     name: str | None = None
@@ -308,6 +312,16 @@ def create_sheet(body: CreateSheetBody) -> dict:
             source_sheet=body.source_sheet,
             fill_data=body.fill_data,
         )
+    except (ValueError, FileNotFoundError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/sheets/delete")
+def delete_sheet(body: DeleteSheetBody) -> dict:
+    try:
+        return xls.delete_sheet(body.name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, FileNotFoundError, PermissionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -142,6 +142,12 @@ select {
   cursor: pointer;
 }
 .new-sheet .btn { width: 100%; margin-top: 4px; }
+.sheet-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: stretch;
+}
 .sheet-btn {
   text-align: left;
   border: 1px solid var(--line);
@@ -151,18 +157,26 @@ select {
   padding: 10px 12px;
   cursor: pointer;
   transition: border-color .2s, transform .2s, background .2s, box-shadow .2s;
+  width: 100%;
 }
 .sheet-btn:hover {
   border-color: rgba(31, 138, 112, 0.45);
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(23, 48, 66, 0.06);
 }
-.sheet-btn.active {
+.sheet-btn.active,
+.sheet-row.active .sheet-btn {
   background: var(--accent-soft);
   border-color: rgba(31, 138, 112, 0.55);
 }
 .sheet-btn strong { display: block; font-size: 0.92rem; }
 .sheet-btn span { color: var(--muted); font-size: 0.78rem; }
+.sheet-del {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  border-radius: 12px;
+  white-space: nowrap;
+}
 
 .steps { display: grid; gap: 18px; }
 .step h3 {
