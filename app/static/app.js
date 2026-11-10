@@ -4,6 +4,8 @@ const state = {
   upload: null,
   mapping: {},
   keys: new Set(),
+  library: { books: [], last_id: null },
+  workbookReady: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -83,10 +85,160 @@ async function browseWorkbook() {
   state.activeSheet = null;
   state.mapping = {};
   state.keys = new Set();
+  state.workbookReady = true;
+  hideBookModal();
   setResult(
     `Открыт оригинал: ${data.file}\nПуть: ${data.path}\nЛистов: ${data.sheets.length}\nИзменения будут сохраняться в этот файл.`
   );
+  await refreshLibrary();
   await loadWorkbook();
+}
+
+async function refreshLibrary() {
+  state.library = await api("/api/library");
+  renderBookModalList();
+  renderSettingsList();
+  return state.library;
+}
+
+function showBookModal() {
+  $("bookModal").hidden = false;
+  renderBookModalList();
+}
+
+function hideBookModal() {
+  $("bookModal").hidden = true;
+}
+
+function showSettingsModal() {
+  $("settingsModal").hidden = false;
+  renderSettingsList();
+}
+
+function hideSettingsModal() {
+  $("settingsModal").hidden = true;
+}
+
+function renderBookModalList() {
+  const root = $("bookModalList");
+  const books = state.library.books || [];
+  root.innerHTML = "";
+  if (!books.length) {
+    root.innerHTML = `<div class="book-empty">Список пуст. Добавьте первую Excel-книгу.</div>`;
+    return;
+  }
+  for (const book of books) {
+    const row = document.createElement("div");
+    row.className = "book-item" + (book.exists ? "" : " missing");
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "pick";
+    pick.innerHTML = `<strong>${escapeHtml(book.name)}</strong><span>${escapeHtml(book.path)}${book.exists ? "" : " · файл не найден"}</span>`;
+    pick.disabled = !book.exists;
+    pick.addEventListener("click", () => selectLibraryBook(book.id).catch((e) => setResult(e.message, true)));
+    row.appendChild(pick);
+    root.appendChild(row);
+  }
+}
+
+function renderSettingsList() {
+  const root = $("settingsBookList");
+  const books = state.library.books || [];
+  root.innerHTML = "";
+  if (!books.length) {
+    root.innerHTML = `<div class="book-empty">Пока нет сохранённых книг.</div>`;
+    return;
+  }
+  for (const book of books) {
+    const row = document.createElement("div");
+    row.className = "book-item" + (book.exists ? "" : " missing");
+    const info = document.createElement("div");
+    info.innerHTML = `<strong>${escapeHtml(book.name)}</strong><span>${escapeHtml(book.path)}${book.exists ? "" : " · файл не найден"}</span>`;
+    const actions = document.createElement("div");
+    actions.className = "book-actions";
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "btn primary";
+    openBtn.textContent = "Открыть";
+    openBtn.disabled = !book.exists;
+    openBtn.addEventListener("click", () => selectLibraryBook(book.id).catch((e) => setResult(e.message, true)));
+
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.className = "btn ghost";
+    renameBtn.textContent = "Имя";
+    renameBtn.addEventListener("click", async () => {
+      const next = prompt("Новое название книги", book.name);
+      if (!next) return;
+      try {
+        const data = await api(`/api/library/${book.id}/rename`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: next }),
+        });
+        state.library = data.library;
+        renderBookModalList();
+        renderSettingsList();
+      } catch (err) {
+        setResult(err.message, true);
+      }
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "btn danger";
+    delBtn.textContent = "Удалить";
+    delBtn.addEventListener("click", async () => {
+      if (!confirm(`Убрать «${book.name}» из списка?`)) return;
+      try {
+        state.library = await api(`/api/library/${book.id}`, { method: "DELETE" });
+        renderBookModalList();
+        renderSettingsList();
+      } catch (err) {
+        setResult(err.message, true);
+      }
+    });
+
+    actions.append(openBtn, renameBtn, delBtn);
+    row.append(info, actions);
+    root.appendChild(row);
+  }
+}
+
+async function selectLibraryBook(bookId) {
+  $("fileLabel").textContent = "Открытие…";
+  const data = await api(`/api/library/select/${bookId}`, { method: "POST" });
+  state.library = data.library || state.library;
+  state.activeSheet = null;
+  state.mapping = {};
+  state.keys = new Set();
+  state.workbookReady = true;
+  hideBookModal();
+  hideSettingsModal();
+  setResult(
+    `Выбрана книга: ${data.library_name || data.file}\nПуть: ${data.path}\nЛистов: ${data.sheets.length}`
+  );
+  await loadWorkbook();
+}
+
+async function addBookViaBrowse() {
+  const data = await api("/api/library/add-browse", { method: "POST" });
+  state.library = data.library;
+  if (data.opened) {
+    state.activeSheet = null;
+    state.mapping = {};
+    state.keys = new Set();
+    state.workbookReady = true;
+    hideBookModal();
+    setResult(
+      `Добавлена и открыта книга: ${data.opened.library_name || data.opened.file}\nПуть: ${data.opened.path}`
+    );
+    await loadWorkbook();
+  } else {
+    renderBookModalList();
+    renderSettingsList();
+  }
 }
 
 async function shutdownApp() {
@@ -404,6 +556,12 @@ function wireUi() {
   $("refreshBtn").addEventListener("click", () => loadWorkbook().catch((e) => setResult(e.message, true)));
   $("createSheetBtn").addEventListener("click", () => createSheet().catch((e) => setResult(e.message, true)));
   $("browseBtn").addEventListener("click", () => browseWorkbook().catch((e) => setResult(e.message, true)));
+  $("chooseBookBtn").addEventListener("click", () => showBookModal());
+  $("settingsBtn").addEventListener("click", () => showSettingsModal());
+  $("settingsCloseBtn").addEventListener("click", () => hideSettingsModal());
+  $("bookModalAddBtn").addEventListener("click", () => addBookViaBrowse().catch((e) => setResult(e.message, true)));
+  $("bookModalSettingsBtn").addEventListener("click", () => showSettingsModal());
+  $("settingsAddBtn").addEventListener("click", () => addBookViaBrowse().catch((e) => setResult(e.message, true)));
   $("shutdownBtn").addEventListener("click", () => shutdownApp().catch((e) => setResult(e.message, true)));
   $("workbookInput").addEventListener("change", async () => {
     const file = $("workbookInput").files?.[0];
@@ -478,5 +636,17 @@ async function createSheet() {
   }
 }
 
-wireUi();
-loadWorkbook().catch((err) => setResult(err.message, true));
+async function boot() {
+  wireUi();
+  await refreshLibrary();
+  showBookModal();
+  // Preload default workbook info in background, but keep modal until user chooses.
+  try {
+    await loadWorkbook();
+  } catch (err) {
+    // No active workbook yet is fine on first launch.
+    console.warn(err);
+  }
+}
+
+boot().catch((err) => setResult(err.message, true));

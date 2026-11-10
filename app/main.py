@@ -50,6 +50,15 @@ class CreateSheetBody(BaseModel):
     fill_data: bool = True
 
 
+class LibraryAddBody(BaseModel):
+    path: str
+    name: str | None = None
+
+
+class LibraryRenameBody(BaseModel):
+    name: str
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse((STATIC / "index.html").read_text(encoding="utf-8"))
@@ -96,9 +105,9 @@ def workbook_info() -> dict:
 
 @app.post("/api/workbook/browse")
 def browse_workbook() -> dict:
-    """Open native Explorer dialog and bind the real file path for in-place edits."""
+    """Open native Explorer dialog, add to library, and bind the real file path."""
     try:
-        opened = xls.browse_workbook()
+        opened = xls.browse_and_add_library_book()
         sheets = xls.list_sheets()
         return {**opened, "sheets": sheets}
     except ValueError as exc:
@@ -107,6 +116,63 @@ def browse_workbook() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/library")
+def get_library() -> dict:
+    return xls.list_library()
+
+
+@app.post("/api/library/add")
+def library_add(body: LibraryAddBody) -> dict:
+    try:
+        book = xls.add_library_book(Path(body.path), body.name)
+        return {"book": book, "library": xls.list_library()}
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/library/add-browse")
+def library_add_browse() -> dict:
+    try:
+        opened = xls.browse_and_add_library_book()
+        return {"opened": opened, "library": xls.list_library()}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/library/select/{book_id}")
+def library_select(book_id: str) -> dict:
+    try:
+        opened = xls.select_library_book(book_id)
+        sheets = xls.list_sheets()
+        return {**opened, "sheets": sheets, "library": xls.list_library()}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/library/{book_id}/rename")
+def library_rename(book_id: str, body: LibraryRenameBody) -> dict:
+    try:
+        book = xls.rename_library_book(book_id, body.name)
+        return {"book": book, "library": xls.list_library()}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/library/{book_id}")
+def library_delete(book_id: str) -> dict:
+    try:
+        xls.remove_library_book(book_id)
+        return xls.list_library()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/workbook/open")
