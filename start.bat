@@ -17,10 +17,15 @@ if %errorlevel%==0 (
   ) else (
     echo [ERROR] Python 3 not found. Install from https://www.python.org/downloads/
     echo Make sure "Add python.exe to PATH" is enabled.
+    echo Recommended: Python 3.11 or 3.12.
     pause
     exit /b 1
   )
 )
+
+echo Using interpreter:
+%PY% --version
+echo.
 
 set "PYTHON="
 if exist ".venv\Scripts\python.exe" goto :use_venv
@@ -29,7 +34,7 @@ echo Creating virtual environment...
 %PY% -m venv .venv
 if errorlevel 1 (
   echo [WARN] venv failed, using system Python
-  %PY% -m pip install --user -r requirements.txt
+  %PY% -m pip install --user --only-binary=:all: -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] pip install failed
     pause
@@ -42,11 +47,14 @@ if errorlevel 1 (
 :use_venv
 call ".venv\Scripts\activate.bat"
 set "PYTHON=.venv\Scripts\python.exe"
-echo Installing dependencies...
+echo Installing dependencies (wheels only, no Visual Studio needed)...
 "%PYTHON%" -m pip install --upgrade pip >nul
-"%PYTHON%" -m pip install -r requirements.txt
+"%PYTHON%" -m pip install --only-binary=:all: -r requirements.txt
 if errorlevel 1 (
-  echo [ERROR] pip install failed
+  echo.
+  echo [ERROR] pip install failed.
+  echo Tip: delete the ".venv" folder and run start.bat again.
+  echo Use Python 3.11 or 3.12 from python.org if the problem continues.
   pause
   exit /b 1
 )

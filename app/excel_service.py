@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import re
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
@@ -145,49 +145,130 @@ def preview_sheet(sheet_name: str, limit: int = 30) -> dict[str, Any]:
         wb.close()
 
 
-def _dataframe_from_upload(path: Path, sheet_name: str | None = None) -> pd.DataFrame:
+def _clean_cell(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text != "" else None
+    return value
+
+
+def _records_from_csv(path: Path) -> tuple[list[str], list[dict[str, Any]]]:
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "utf-8", "cp1251", "latin-1"):
+        try:
+            with path.open("r", encoding=encoding, newline="") as handle:
+                sample = handle.read(4096)
+                handle.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+                except csv.Error:
+                    dialect = csv.excel
+                reader = csv.DictReader(handle, dialect=dialect)
+                if not reader.fieldnames:
+                    return [], []
+                columns = [_norm(c) for c in reader.fieldnames]
+                rows: list[dict[str, Any]] = []
+                for raw in reader:
+                    item = {
+                        columns[i]: _clean_cell(raw.get(original))
+                        for i, original in enumerate(reader.fieldnames)
+                        if i < len(columns)
+                    }
+                    if any(v not in (None, "") for v in item.values()):
+                        rows.append(item)
+                return columns, rows
+        except UnicodeDecodeError as exc:
+            last_error = exc
+            continue
+    raise ValueError(f"Не удалось прочитать CSV: {last_error}")
+
+
+def _records_from_excel(path: Path, sheet_name: str | None = None) -> tuple[list[str], list[dict[str, Any]]]:
+    wb = load_workbook(path, data_only=True, read_only=True)
+    try:
+        if sheet_name is None:
+            ws = wb[wb.sheetnames[0]]
+        else:
+            if sheet_name not in wb.sheetnames:
+                raise KeyError(f"Лист источника не найден: {sheet_name}")
+            ws = wb[sheet_name]
+
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header_raw = next(rows_iter)
+        except StopIteration:
+            return [], []
+
+        columns: list[str] = []
+        col_indexes: list[int] = []
+        for idx, value in enumerate(header_raw):
+            name = _norm(value)
+            if name:
+                columns.append(name)
+                col_indexes.append(idx)
+
+        records: list[dict[str, Any]] = []
+        for row in rows_iter:
+            item = {
+                columns[i]: _clean_cell(row[col_indexes[i]] if col_indexes[i] < len(row) else None)
+                for i in range(len(columns))
+            }
+            if any(v not in (None, "") for v in item.values()):
+                records.append(item)
+        return columns, records
+    finally:
+        wb.close()
+
+
+def _records_from_upload(path: Path, sheet_name: str | None = None) -> tuple[list[str], list[dict[str, Any]]]:
     suffix = path.suffix.lower()
-    if suffix in {".xlsx", ".xlsm", ".xls"}:
-        df = pd.read_excel(path, sheet_name=sheet_name or 0, dtype=object)
-    elif suffix == ".csv":
-        df = pd.read_csv(path, dtype=object)
-    else:
-        raise ValueError("Поддерживаются только .xlsx / .xlsm / .xls / .csv")
-    df.columns = [_norm(c) for c in df.columns]
-    df = df.dropna(how="all")
-    return df
+    if suffix == ".csv":
+        return _records_from_csv(path)
+    if suffix in {".xlsx", ".xlsm"}:
+        return _records_from_excel(path, sheet_name)
+    if suffix == ".xls":
+        raise ValueError("Формат .xls не поддерживается. Сохраните файл как .xlsx или .csv")
+    raise ValueError("Поддерживаются только .xlsx / .xlsm / .csv")
 
 
 def inspect_upload(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix == ".csv":
-        df = _dataframe_from_upload(path)
+        columns, rows = _records_from_upload(path)
+        preview = [{k: ("" if v is None else v) for k, v in row.items()} for row in rows[:15]]
         return {
             "sheets": [
                 {
                     "name": path.name,
-                    "columns": list(df.columns),
-                    "row_count": int(len(df)),
-                    "preview": df.head(15).fillna("").to_dict(orient="records"),
+                    "columns": columns,
+                    "row_count": len(rows),
+                    "preview": preview,
                 }
             ]
         }
 
-    xl = pd.ExcelFile(path)
-    sheets: list[dict[str, Any]] = []
-    for name in xl.sheet_names:
-        df = pd.read_excel(path, sheet_name=name, dtype=object)
-        df.columns = [_norm(c) for c in df.columns]
-        df = df.dropna(how="all")
-        sheets.append(
-            {
-                "name": name,
-                "columns": list(df.columns),
-                "row_count": int(len(df)),
-                "preview": df.head(15).fillna("").to_dict(orient="records"),
-            }
-        )
-    return {"sheets": sheets}
+    if suffix == ".xls":
+        raise ValueError("Формат .xls не поддерживается. Сохраните файл как .xlsx или .csv")
+
+    wb = load_workbook(path, data_only=True, read_only=True)
+    try:
+        sheets: list[dict[str, Any]] = []
+        for name in wb.sheetnames:
+            columns, rows = _records_from_excel(path, name)
+            preview = [{k: ("" if v is None else v) for k, v in row.items()} for row in rows[:15]]
+            sheets.append(
+                {
+                    "name": name,
+                    "columns": columns,
+                    "row_count": len(rows),
+                    "preview": preview,
+                }
+            )
+        return {"sheets": sheets}
+    finally:
+        wb.close()
 
 
 def suggest_mapping(source_columns: list[str], target_columns: list[str]) -> dict[str, str | None]:
@@ -226,12 +307,13 @@ def apply_load(
     if mode not in {"replace_sheet", "append", "upsert"}:
         raise ValueError("mode должен быть replace_sheet | append | upsert")
 
-    source_df = _dataframe_from_upload(upload_path, source_sheet)
+    source_columns, source_rows = _records_from_upload(upload_path, source_sheet)
+    source_col_set = set(source_columns)
     active_map = {t: s for t, s in mapping.items() if s}
     if not active_map:
         raise ValueError("Нужно сопоставить хотя бы одну колонку")
 
-    missing_src = [s for s in active_map.values() if s not in source_df.columns]
+    missing_src = [s for s in active_map.values() if s not in source_col_set]
     if missing_src:
         raise ValueError(f"В источнике нет колонок: {', '.join(missing_src)}")
 
@@ -252,13 +334,11 @@ def apply_load(
 
         # Build incoming rows in target column order for mapped fields only
         incoming: list[dict[str, Any]] = []
-        for _, row in source_df.iterrows():
+        for row in source_rows:
             item: dict[str, Any] = {}
             empty = True
             for target_col, source_col in active_map.items():
-                value = row.get(source_col)
-                if pd.isna(value):
-                    value = None
+                value = _clean_cell(row.get(source_col))
                 item[target_col] = value
                 if value not in (None, ""):
                     empty = False
@@ -419,11 +499,12 @@ def create_sheet(
     sheet_name = _validate_sheet_name(name)
     columns = _normalize_columns(columns)
 
-    source_df: pd.DataFrame | None = None
+    source_columns: list[str] = []
+    source_rows: list[dict[str, Any]] = []
     if upload_path is not None:
-        source_df = _dataframe_from_upload(upload_path, source_sheet)
+        source_columns, source_rows = _records_from_upload(upload_path, source_sheet)
         if not columns:
-            columns = [_norm(c) for c in source_df.columns if _norm(c)]
+            columns = [c for c in source_columns if c]
 
     if not columns:
         raise ValueError("Укажите колонки или загрузите файл-источник с заголовками")
@@ -440,16 +521,15 @@ def create_sheet(
             ws.cell(1, idx).value = col_name
 
         inserted = 0
-        if fill_data and source_df is not None:
+        if fill_data and source_rows:
             write_row = 2
-            for _, row in source_df.iterrows():
+            source_col_set = set(source_columns)
+            for row in source_rows:
                 empty = True
                 for idx, col_name in enumerate(columns, start=1):
-                    if col_name not in source_df.columns:
+                    if col_name not in source_col_set:
                         continue
-                    value = row.get(col_name)
-                    if pd.isna(value):
-                        value = None
+                    value = _clean_cell(row.get(col_name))
                     if value not in (None, ""):
                         empty = False
                     ws.cell(write_row, idx).value = value

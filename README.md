@@ -4,9 +4,11 @@
 
 ## Быстрый старт (Windows)
 
-1. Установите [Python 3.10+](https://www.python.org/downloads/) (галочка **Add to PATH**).
+1. Установите [Python 3.11 или 3.12](https://www.python.org/downloads/) (галочка **Add to PATH**).
 2. Дважды нажмите `start.bat`.
 3. Откроется браузер: [http://127.0.0.1:8765](http://127.0.0.1:8765).
+
+Если `pip install` падает: удалите папку `.venv` и запустите `start.bat` снова.
 
 Linux / macOS: `chmod +x start.sh && ./start.sh`
 
