@@ -55,13 +55,15 @@ def _read_active_meta() -> dict[str, Any] | None:
     return data
 
 
-def _write_active_meta(original_name: str, path: Path) -> None:
+def _write_active_meta(original_name: str, path: Path, *, inplace: bool) -> None:
     ensure_dirs()
+    resolved = path.resolve()
     ACTIVE_META.write_text(
         json.dumps(
             {
                 "original_name": original_name,
-                "path": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
+                "path": str(resolved),
+                "inplace": bool(inplace),
             },
             ensure_ascii=False,
             indent=2,
@@ -78,19 +80,22 @@ def active_info() -> dict[str, Any]:
         raw = Path(meta["path"])
         path = raw if raw.is_absolute() else (ROOT / raw)
         if path.exists():
+            inplace = bool(meta.get("inplace", not _is_working_copy(path)))
             return {
                 "file": meta.get("original_name") or path.name,
-                "path": str(path),
+                "path": str(path.resolve()),
                 "selected": True,
                 "exists": True,
+                "inplace": inplace,
             }
 
     if DEFAULT_TARGET.exists():
         return {
             "file": DEFAULT_TARGET.name,
-            "path": str(DEFAULT_TARGET),
+            "path": str(DEFAULT_TARGET.resolve()),
             "selected": False,
             "exists": True,
+            "inplace": True,
         }
 
     return {
@@ -98,7 +103,15 @@ def active_info() -> dict[str, Any]:
         "path": None,
         "selected": False,
         "exists": False,
+        "inplace": False,
     }
+
+
+def _is_working_copy(path: Path) -> bool:
+    try:
+        return path.resolve() == (DATA_DIR / WORKING_NAME).resolve()
+    except OSError:
+        return False
 
 
 def target_path() -> Path:
@@ -113,35 +126,100 @@ def target_path() -> Path:
     return path
 
 
-def open_workbook_file(source: Path, original_name: str) -> dict[str, Any]:
-    """Set the working workbook from a file chosen in Explorer / uploaded by the user."""
-    ensure_dirs()
-    suffix = source.suffix.lower()
+def _validate_workbook(path: Path) -> int:
+    suffix = path.suffix.lower()
     if suffix not in {".xlsx", ".xlsm"}:
         raise ValueError("Нужен файл .xlsx или .xlsm")
-
-    # Validate workbook can be opened before replacing the active file
-    wb = load_workbook(source, read_only=True)
+    wb = load_workbook(path, read_only=True)
     try:
         sheet_count = len(wb.sheetnames)
         if sheet_count < 1:
             raise ValueError("В файле нет листов")
+        return sheet_count
     finally:
         wb.close()
+
+
+def open_workbook_from_path(path: Path) -> dict[str, Any]:
+    """Open a real filesystem path and write all later changes back to it."""
+    ensure_dirs()
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Не найден файл: {resolved}")
+    sheet_count = _validate_workbook(resolved)
+    _write_active_meta(resolved.name, resolved, inplace=True)
+    return {
+        "file": resolved.name,
+        "path": str(resolved),
+        "sheets": sheet_count,
+        "selected": True,
+        "exists": True,
+        "inplace": True,
+    }
+
+
+def browse_workbook() -> dict[str, Any]:
+    """Open native Explorer / file dialog and select a workbook path."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            "Не удалось открыть системный проводник. Используйте Python с поддержкой tkinter."
+        ) from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    root.update()
+    chosen = filedialog.askopenfilename(
+        parent=root,
+        title="Выберите Excel-файл",
+        filetypes=[
+            ("Excel files", "*.xlsx *.xlsm"),
+            ("All files", "*.*"),
+        ],
+    )
+    root.destroy()
+    if not chosen:
+        raise ValueError("Файл не выбран")
+    return open_workbook_from_path(Path(chosen))
+
+
+def open_workbook_file(source: Path, original_name: str) -> dict[str, Any]:
+    """Open an uploaded browser copy (changes stay in data/working.xlsx until download)."""
+    ensure_dirs()
+    sheet_count = _validate_workbook(source)
 
     working = DATA_DIR / WORKING_NAME
     shutil.copy2(source, working)
     display_name = Path(original_name).name or working.name
     if not display_name.lower().endswith((".xlsx", ".xlsm")):
         display_name = f"{display_name}.xlsx"
-    _write_active_meta(display_name, working)
+    _write_active_meta(display_name, working, inplace=False)
     return {
         "file": display_name,
-        "path": str(working),
+        "path": str(working.resolve()),
         "sheets": sheet_count,
         "selected": True,
         "exists": True,
+        "inplace": False,
     }
+
+
+def save_workbook(wb: Any) -> Path:
+    """Persist workbook to the active path with a clear lock error."""
+    path = target_path()
+    try:
+        wb.save(path)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Не удалось сохранить «{path.name}». Закройте файл в Excel и повторите."
+        ) from exc
+    return path
 
 
 def backup_target() -> Path:
@@ -564,9 +642,10 @@ def apply_load(
                     next_row += 1
                     stats["inserted"] += 1
 
-        wb.save(target_path())
+        saved_to = save_workbook(wb)
         stats["columns_written"] = list(active_map.keys())
         stats["header_names"] = header_names
+        stats["saved_to"] = str(saved_to)
         return stats
     finally:
         wb.close()
@@ -661,13 +740,15 @@ def create_sheet(
                     inserted += 1
                     write_row += 1
 
-        wb.save(target_path())
+        saved_to = save_workbook(wb)
         return {
             "sheet": sheet_name,
             "columns": columns,
             "inserted": inserted,
             "backup": str(backup.relative_to(ROOT)),
             "from_upload": upload_path is not None,
+            "saved_to": str(saved_to),
+            "inplace": bool(active_info().get("inplace")),
         }
     finally:
         wb.close()
