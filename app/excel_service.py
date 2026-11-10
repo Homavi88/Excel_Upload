@@ -1055,3 +1055,43 @@ def create_sheet(
         "inplace": bool(active_info().get("inplace")),
         "engine": engine,
     }
+
+
+def delete_sheet(name: str) -> dict[str, Any]:
+    """Delete a worksheet from the active workbook with backup."""
+    sheet_name = _norm(name)
+    if not sheet_name:
+        raise ValueError("Укажите название листа")
+
+    path = target_path()
+    # Ensure sheet exists and is not the only one
+    sheets = list_sheets()
+    names = [s["name"] for s in sheets]
+    found = next((n for n in names if n.lower() == sheet_name.lower()), None)
+    if not found:
+        raise KeyError(f"Лист не найден: {sheet_name}")
+    if len(names) <= 1:
+        raise ValueError("Нельзя удалить последний лист книги")
+
+    backup = backup_target()
+    suffix = path.suffix.lower()
+    engine = "ooxml"
+    if suffix in excel_ooxml.OOXML_SUFFIXES:
+        excel_ooxml.delete_sheet_ooxml(path, found)
+        engine = "ooxml"
+    elif excel_com.excel_com_available():
+        excel_com.delete_sheet_com(path, found)
+        engine = "excel-com"
+    else:
+        raise ValueError(
+            f"Нельзя безопасно изменить {suffix} без Microsoft Excel на Windows."
+        )
+
+    return {
+        "sheet": found,
+        "backup": str(backup.relative_to(ROOT)),
+        "saved_to": str(path),
+        "inplace": bool(active_info().get("inplace")),
+        "engine": engine,
+        "remaining_sheets": len(names) - 1,
+    }
