@@ -84,8 +84,15 @@ if not exist "TARGET.xlsx" (
 echo.
 echo Starting server at http://127.0.0.1:8766
 echo Use "Open Excel" in the browser to choose a workbook.
-echo Close this window to stop the loader.
+echo Or press "Выключить" in the UI to stop and close this window.
 echo.
 start "" "http://127.0.0.1:8766"
 %PYTHON% -m uvicorn app.main:app --host 127.0.0.1 --port 8766
-pause
+set "EXITCODE=%ERRORLEVEL%"
+if not "%EXITCODE%"=="0" (
+  echo.
+  echo [ERROR] Server stopped with code %EXITCODE%
+  pause
+  exit /b %EXITCODE%
+)
+exit /b 0

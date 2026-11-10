@@ -89,6 +89,24 @@ async function browseWorkbook() {
   await loadWorkbook();
 }
 
+async function shutdownApp() {
+  if (!confirm("Выключить Excel Loader и закрыть окно терминала?")) return;
+  $("shutdownBtn").disabled = true;
+  setResult("Выключение приложения…");
+  try {
+    await api("/api/shutdown", { method: "POST" });
+  } catch (_) {
+    // Server may die before response is fully received — expected.
+  }
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:grid;place-items:center;font-family:IBM Plex Sans,sans-serif;background:#eef3f7;color:#173042;">
+      <div style="text-align:center;padding:24px;">
+        <h1 style="font-family:Space Grotesk,sans-serif;margin:0 0 8px;">Приложение выключено</h1>
+        <p style="margin:0;color:#5f7383;">Окно терминала должно закрыться автоматически.</p>
+      </div>
+    </div>`;
+}
+
 async function openWorkbookFile(file) {
   const form = new FormData();
   form.append("file", file);
@@ -386,6 +404,7 @@ function wireUi() {
   $("refreshBtn").addEventListener("click", () => loadWorkbook().catch((e) => setResult(e.message, true)));
   $("createSheetBtn").addEventListener("click", () => createSheet().catch((e) => setResult(e.message, true)));
   $("browseBtn").addEventListener("click", () => browseWorkbook().catch((e) => setResult(e.message, true)));
+  $("shutdownBtn").addEventListener("click", () => shutdownApp().catch((e) => setResult(e.message, true)));
   $("workbookInput").addEventListener("change", async () => {
     const file = $("workbookInput").files?.[0];
     if (!file) return;
