@@ -351,6 +351,90 @@ tbody tr:hover { background: rgba(31, 138, 112, 0.05); }
   to { opacity: 1; transform: none; }
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(23, 48, 66, 0.35);
+  backdrop-filter: blur(6px);
+}
+.modal-backdrop[hidden] { display: none !important; }
+.modal {
+  width: min(520px, 100%);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(23, 48, 66, 0.18);
+  padding: 22px;
+  animation: rise 280ms cubic-bezier(.2,.8,.2,1) both;
+}
+.modal-wide { width: min(720px, 100%); }
+.modal h2 {
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.modal-head h2 { margin: 0; }
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.book-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  max-height: min(420px, 55vh);
+  overflow: auto;
+}
+.book-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fbfd;
+  text-align: left;
+}
+.book-item button.pick {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.book-item strong { display: block; font-size: 0.98rem; }
+.book-item span { color: var(--muted); font-size: 0.78rem; word-break: break-all; }
+.book-item.missing {
+  border-color: rgba(180, 35, 24, 0.25);
+  background: rgba(180, 35, 24, 0.04);
+}
+.book-item .book-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.book-empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
   .sheet-list { max-height: 220px; flex-direction: row; flex-wrap: wrap; }

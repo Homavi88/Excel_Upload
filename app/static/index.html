@@ -21,7 +21,9 @@
       </div>
     </div>
     <div class="top-actions">
-      <button class="btn primary" type="button" id="browseBtn">Открыть Excel</button>
+      <button class="btn primary" type="button" id="chooseBookBtn">Выбрать книгу</button>
+      <button class="btn ghost" type="button" id="settingsBtn">Настройки</button>
+      <button class="btn ghost" type="button" id="browseBtn">Открыть Excel</button>
       <label class="btn ghost open-btn" title="Открыть копию без записи в оригинал">
         Копия
         <input type="file" id="workbookInput" accept=".xlsx,.xlsm,.xls,.xlsb,.xltx,.xltm" hidden />
@@ -31,6 +33,32 @@
       <button class="btn danger" type="button" id="shutdownBtn">Выключить</button>
     </div>
   </header>
+
+  <div class="modal-backdrop" id="bookModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bookModalTitle">
+      <h2 id="bookModalTitle">Какую книгу редактировать?</h2>
+      <p class="muted">Выберите Excel-книгу из списка или добавьте новую.</p>
+      <div id="bookModalList" class="book-list"></div>
+      <div class="modal-actions">
+        <button class="btn primary" type="button" id="bookModalAddBtn">Добавить книгу</button>
+        <button class="btn ghost" type="button" id="bookModalSettingsBtn">Настройки списка</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+      <div class="modal-head">
+        <h2 id="settingsModalTitle">Настройки — список книг</h2>
+        <button class="btn ghost" type="button" id="settingsCloseBtn">Закрыть</button>
+      </div>
+      <p class="muted">Здесь хранится список Excel-файлов для быстрого выбора при запуске.</p>
+      <div id="settingsBookList" class="book-list settings-list"></div>
+      <div class="modal-actions">
+        <button class="btn primary" type="button" id="settingsAddBtn">Добавить через проводник</button>
+      </div>
+    </div>
+  </div>
 
   <main class="layout">
     <aside class="panel sheets-panel">

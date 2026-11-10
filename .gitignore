@@ -8,5 +8,6 @@ backups/*
 !backups/.gitkeep
 data/working.*
 data/active.json
+data/library.json
 *.log
 .DS_Store

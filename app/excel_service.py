@@ -6,6 +6,7 @@ import csv
 import json
 import re
 import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ DATA_DIR = ROOT / "data"
 BACKUP_DIR = ROOT / "backups"
 UPLOAD_DIR = ROOT / "uploads"
 ACTIVE_META = DATA_DIR / "active.json"
+LIBRARY_PATH = DATA_DIR / "library.json"
 WORKING_NAME = "working.xlsx"
 
 SUPPORTED_WORKBOOK_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".xlsb", ".xltx", ".xltm"}
@@ -77,6 +79,119 @@ def _write_active_meta(original_name: str, path: Path, *, inplace: bool) -> None
         ),
         encoding="utf-8",
     )
+
+
+def _read_library() -> dict[str, Any]:
+    ensure_dirs()
+    if not LIBRARY_PATH.exists():
+        return {"books": [], "last_id": None}
+    try:
+        data = json.loads(LIBRARY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"books": [], "last_id": None}
+    if not isinstance(data, dict):
+        return {"books": [], "last_id": None}
+    books = data.get("books") or []
+    if not isinstance(books, list):
+        books = []
+    return {"books": books, "last_id": data.get("last_id")}
+
+
+def _write_library(data: dict[str, Any]) -> None:
+    ensure_dirs()
+    LIBRARY_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def list_library() -> dict[str, Any]:
+    data = _read_library()
+    enriched = []
+    for book in data["books"]:
+        path = Path(str(book.get("path") or ""))
+        enriched.append(
+            {
+                "id": book.get("id"),
+                "name": book.get("name") or path.name,
+                "path": str(path),
+                "exists": path.exists(),
+                "added_at": book.get("added_at"),
+            }
+        )
+    return {"books": enriched, "last_id": data.get("last_id")}
+
+
+def add_library_book(path: Path, name: str | None = None) -> dict[str, Any]:
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"Не найден файл: {resolved}")
+    if resolved.suffix.lower() not in SUPPORTED_WORKBOOK_SUFFIXES:
+        raise ValueError("Поддерживаются только Excel-файлы")
+    _validate_workbook(resolved)
+
+    data = _read_library()
+    for book in data["books"]:
+        if Path(str(book.get("path") or "")).resolve() == resolved:
+            book["name"] = name or book.get("name") or resolved.name
+            data["last_id"] = book["id"]
+            _write_library(data)
+            return book
+
+    item = {
+        "id": uuid.uuid4().hex,
+        "name": (name or resolved.name).strip() or resolved.name,
+        "path": str(resolved),
+        "added_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    data["books"].append(item)
+    data["last_id"] = item["id"]
+    _write_library(data)
+    return item
+
+
+def remove_library_book(book_id: str) -> None:
+    data = _read_library()
+    before = len(data["books"])
+    data["books"] = [b for b in data["books"] if b.get("id") != book_id]
+    if len(data["books"]) == before:
+        raise KeyError("Книга не найдена в списке")
+    if data.get("last_id") == book_id:
+        data["last_id"] = data["books"][0]["id"] if data["books"] else None
+    _write_library(data)
+
+
+def rename_library_book(book_id: str, name: str) -> dict[str, Any]:
+    cleaned = _norm(name)
+    if not cleaned:
+        raise ValueError("Укажите название")
+    data = _read_library()
+    for book in data["books"]:
+        if book.get("id") == book_id:
+            book["name"] = cleaned
+            _write_library(data)
+            return book
+    raise KeyError("Книга не найдена в списке")
+
+
+def select_library_book(book_id: str) -> dict[str, Any]:
+    data = _read_library()
+    for book in data["books"]:
+        if book.get("id") == book_id:
+            path = Path(str(book.get("path") or ""))
+            if not path.exists():
+                raise FileNotFoundError(f"Файл больше недоступен: {path}")
+            opened = open_workbook_from_path(path)
+            data["last_id"] = book_id
+            _write_library(data)
+            return {**opened, "library_id": book_id, "library_name": book.get("name")}
+    raise KeyError("Книга не найдена в списке")
+
+
+def browse_and_add_library_book() -> dict[str, Any]:
+    opened = browse_workbook()
+    book = add_library_book(Path(opened["path"]), opened["file"])
+    return {**opened, "library_id": book["id"], "library_name": book["name"]}
 
 
 def active_info() -> dict[str, Any]:
