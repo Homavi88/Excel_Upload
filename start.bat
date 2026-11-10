@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo ============================================
-echo   Excel Loader for TARGET.xlsx
+echo   Excel Loader
 echo ============================================
 echo.
 
@@ -34,7 +34,7 @@ echo Creating virtual environment...
 %PY% -m venv .venv
 if errorlevel 1 (
   echo [WARN] venv failed, using system Python
-  %PY% -m pip install --user --only-binary=:all: -r requirements.txt
+  %PY% -m pip install --user --prefer-binary --no-cache-dir -r requirements.txt
   if errorlevel 1 (
     echo [ERROR] pip install failed
     pause
@@ -47,16 +47,33 @@ if errorlevel 1 (
 :use_venv
 call ".venv\Scripts\activate.bat"
 set "PYTHON=.venv\Scripts\python.exe"
-echo Installing dependencies (wheels only, no Visual Studio needed)...
+echo Installing dependencies...
 "%PYTHON%" -m pip install --upgrade pip >nul
-"%PYTHON%" -m pip install --only-binary=:all: -r requirements.txt
+"%PYTHON%" -m pip install --prefer-binary --no-cache-dir -r requirements.txt
 if errorlevel 1 (
   echo.
-  echo [ERROR] pip install failed.
-  echo Tip: delete the ".venv" folder and run start.bat again.
-  echo Use Python 3.11 or 3.12 from python.org if the problem continues.
-  pause
-  exit /b 1
+  echo [WARN] First install failed. Recreating .venv and retrying...
+  call deactivate 2>nul
+  rmdir /s /q ".venv" 2>nul
+  %PY% -m venv .venv
+  if errorlevel 1 (
+    echo [ERROR] Failed to recreate .venv
+    pause
+    exit /b 1
+  )
+  call ".venv\Scripts\activate.bat"
+  set "PYTHON=.venv\Scripts\python.exe"
+  "%PYTHON%" -m pip install --upgrade pip >nul
+  "%PYTHON%" -m pip install --prefer-binary --no-cache-dir -r requirements.txt
+  if errorlevel 1 (
+    echo.
+    echo [ERROR] pip install failed.
+    echo 1. Delete folder ".venv"
+    echo 2. Install Python 3.11 or 3.12 from python.org
+    echo 3. Run start.bat again
+    pause
+    exit /b 1
+  )
 )
 
 :start_server
