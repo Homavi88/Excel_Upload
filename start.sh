@@ -35,12 +35,12 @@ if [[ -x .venv/bin/python ]]; then
 fi
 
 if [[ ! -f TARGET.xlsx ]]; then
-  echo "[ERROR] TARGET.xlsx not found in $(pwd)"
-  exit 1
+  echo "[INFO] TARGET.xlsx not found — open any .xlsx via the web UI."
 fi
 
 echo
 echo "Starting server at http://127.0.0.1:8765"
+echo "Use «Открыть Excel» in the browser to choose a workbook."
 echo "Press Ctrl+C to stop."
 echo
 "$PYTHON" -m uvicorn app.main:app --host 127.0.0.1 --port 8765

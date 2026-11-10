@@ -61,13 +61,12 @@ if errorlevel 1 (
 
 :start_server
 if not exist "TARGET.xlsx" (
-  echo [ERROR] TARGET.xlsx not found in %cd%
-  pause
-  exit /b 1
+  echo [INFO] TARGET.xlsx not found — open any .xlsx via the web UI.
 )
 
 echo.
 echo Starting server at http://127.0.0.1:8765
+echo Use "Open Excel" in the browser to choose a workbook.
 echo Close this window to stop the loader.
 echo.
 start "" "http://127.0.0.1:8765"
