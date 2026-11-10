@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
+printf '\033]0;Excel Loader\007'
 
 echo "============================================"
 echo "  Excel Loader"

@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+title Excel Loader
 
 echo ============================================
 echo   Excel Loader
