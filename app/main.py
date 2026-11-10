@@ -78,8 +78,8 @@ async def upload_source(file: UploadFile = File(...)) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm", ".xls", ".csv"}:
-        raise HTTPException(status_code=400, detail="Нужен .xlsx / .csv")
+    if suffix not in {".xlsx", ".xlsm", ".csv"}:
+        raise HTTPException(status_code=400, detail="Нужен .xlsx / .xlsm / .csv (не .xls)")
 
     xls.ensure_dirs()
     upload_id = uuid.uuid4().hex
@@ -190,8 +190,8 @@ async def replace_whole_sheet(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Файл не выбран")
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm", ".xls", ".csv"}:
-        raise HTTPException(status_code=400, detail="Нужен .xlsx / .csv")
+    if suffix not in {".xlsx", ".xlsm", ".csv"}:
+        raise HTTPException(status_code=400, detail="Нужен .xlsx / .xlsm / .csv (не .xls)")
 
     xls.ensure_dirs()
     upload_id = uuid.uuid4().hex

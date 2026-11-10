@@ -20,7 +20,7 @@ if [[ ! -d .venv ]]; then
   else
     echo "[WARN] venv unavailable, using system Python"
     rm -rf .venv
-    python3 -m pip install --user -r requirements.txt
+    python3 -m pip install --user --only-binary=:all: -r requirements.txt
     export PATH="$HOME/.local/bin:$PATH"
   fi
 else
@@ -31,7 +31,7 @@ fi
 if [[ -x .venv/bin/python ]]; then
   PYTHON=.venv/bin/python
   "$PYTHON" -m pip install --upgrade pip >/dev/null
-  "$PYTHON" -m pip install -r requirements.txt
+  "$PYTHON" -m pip install --only-binary=:all: -r requirements.txt
 fi
 
 if [[ ! -f TARGET.xlsx ]]; then
