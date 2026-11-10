@@ -39,8 +39,8 @@ if [[ ! -f TARGET.xlsx ]]; then
 fi
 
 echo
-echo "Starting server at http://127.0.0.1:8765"
+echo "Starting server at http://127.0.0.1:8766"
 echo "Use «Открыть Excel» in the browser to choose a workbook."
 echo "Press Ctrl+C to stop."
 echo
-"$PYTHON" -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+"$PYTHON" -m uvicorn app.main:app --host 127.0.0.1 --port 8766
